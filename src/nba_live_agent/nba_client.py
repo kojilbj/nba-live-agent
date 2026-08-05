@@ -19,6 +19,10 @@ def _normalize(text: str) -> str:
     return text.lower().strip()
 
 
+def _format_matchup(game: dict) -> str:
+    return f"{game['awayTeam']['teamName']} @ {game['homeTeam']['teamName']}"
+
+
 def _matching_teams(query: str) -> list[dict]:
     q = _normalize(query)
     q_words = set(q.split())
@@ -98,7 +102,9 @@ def _resolve_game_raw(query: str, date: str = "today") -> dict:
 
     Returns a dict with one of:
     - {"status": "ok", "game_id", "home_team", "away_team", "game_status"}
-    - {"status": "not_found", "message"}
+    - {"status": "not_found", "message", "available_games": [...]} — games
+      were scheduled on that date, just none matched the query; lists them
+      all so the caller can offer them as options instead of dead-ending
     - {"status": "ambiguous", "message", "candidates": [...]}
     - {"status": "unsupported_date", "message"}
     - {"status": "api_error", "message"}
@@ -136,18 +142,18 @@ def _resolve_game_raw(query: str, date: str = "today") -> dict:
             matches.append(game)
 
     if not matches:
+        available = [_format_matchup(g) for g in games]
         return {
             "status": "not_found",
             "message": (
-                f"No game on {date_label} matches '{query}'. Double-check the "
-                "team name or the date."
+                f"No game on {date_label} matches '{query}'. Here's what's "
+                f"actually on {date_label}: {', '.join(available)}."
             ),
+            "available_games": available,
         }
 
     if len(matches) > 1:
-        candidates = [
-            f"{g['awayTeam']['teamName']} @ {g['homeTeam']['teamName']}" for g in matches
-        ]
+        candidates = [_format_matchup(g) for g in matches]
         return {
             "status": "ambiguous",
             "message": f"'{query}' matches multiple games on {date_label}: {', '.join(candidates)}.",

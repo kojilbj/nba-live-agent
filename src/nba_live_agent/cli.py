@@ -22,8 +22,13 @@ RESOLVE_SYSTEM_PROMPT_TEMPLATE = (
     "past or future game — if the user names a game that isn't today's "
     "(e.g. 'yesterday', 'last night', 'the Lakers Celtics game from January "
     "15'), convert that to a concrete date yourself and pass it. If the "
-    "match is ambiguous or not found, explain why and ask the user to "
-    "clarify."
+    "result is ambiguous or not found, don't just say so and stop — "
+    "resolve_game's candidates/available_games field lists the real games "
+    "on that date; present those as a numbered list ('1. Lakers @ "
+    "Celtics', '2. ...') and ask the user to pick one, so they can respond "
+    "with a number instead of having to type a team name precisely. Only "
+    "fall back to asking them to re-describe the game if that list is "
+    "empty too."
 )
 
 QA_SYSTEM_PROMPT_TEMPLATE = (
