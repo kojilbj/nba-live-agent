@@ -68,3 +68,23 @@ class MatchupsResult(BaseModel):
     player_name: str | None = None
     matchups: list[MatchupLine] = []
     message: str | None = None
+
+
+class HustleLine(BaseModel):
+    name: str
+    team_tricode: str | None
+    screen_assists: int | None
+    deflections: int | None
+    charges_drawn: int | None
+    box_outs: int | None
+    contested_shots: int | None
+    loose_balls_recovered: int | None
+
+
+class HustleStatsResult(BaseModel):
+    status: Literal["ok", "game_not_started", "api_error"]
+    home_team: str | None = None
+    away_team: str | None = None
+    home_players: list[HustleLine] = []
+    away_players: list[HustleLine] = []
+    message: str | None = None

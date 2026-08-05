@@ -24,7 +24,13 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from nba_live_agent.agent import build_live_graph
-from nba_live_agent.tools import get_boxscore, get_matchups, get_play_by_play, resolve_game
+from nba_live_agent.tools import (
+    get_boxscore,
+    get_hustle_stats,
+    get_matchups,
+    get_play_by_play,
+    resolve_game,
+)
 
 RESOLVE_SYSTEM_PROMPT_TEMPLATE = (
     "You are an NBA in-game analyst. Today's date is {today}. Your only job "
@@ -47,14 +53,20 @@ QA_SYSTEM_PROMPT_TEMPLATE = (
     "You are an NBA in-game analyst. Today's date is {today}. You are "
     "already locked onto a specific game — game_id={game_id} ({away_team} "
     "@ {home_team}) — so do not call resolve_game; use get_play_by_play, "
-    "get_boxscore, and get_matchups directly with this game_id to answer "
-    "the question below. Give a causal, specific answer grounded in that "
-    "data, not a generic stat dump. Defensive matchup questions ('who "
-    "guarded X the most', 'how did X do against Y') aren't answerable from "
-    "play-by-play or boxscore data — call get_matchups for those rather "
-    "than guessing from playing time or position. If the requested period "
-    "hasn't been played yet, or a named player doesn't appear in the tool "
-    "results, say so plainly instead of guessing or fabricating an answer."
+    "get_boxscore, get_matchups, and get_hustle_stats directly with this "
+    "game_id to answer the question below. Give a causal, specific answer "
+    "grounded in that data, not a generic stat dump. Defensive matchup "
+    "questions ('who guarded X the most', 'how did X do against Y') aren't "
+    "answerable from play-by-play or boxscore data — call get_matchups for "
+    "those rather than guessing from playing time or position. Hustle-stat "
+    "questions ('who had the most screen assists/deflections/charges "
+    "drawn/box outs', etc.) — call get_hustle_stats; these are whole-game "
+    "totals per player, not paired to a specific teammate, so a question "
+    "like 'who screened for X specifically' isn't answerable from this or "
+    "any other tool — say so plainly rather than guessing. If the requested "
+    "period hasn't been played yet, or a named player doesn't appear in the "
+    "tool results, say so plainly instead of guessing or fabricating an "
+    "answer."
 )
 
 TOOL_STATUS_MESSAGES = {
@@ -62,6 +74,7 @@ TOOL_STATUS_MESSAGES = {
     "get_play_by_play": "Pulling play-by-play...",
     "get_boxscore": "Checking the boxscore...",
     "get_matchups": "Checking matchup data...",
+    "get_hustle_stats": "Checking hustle stats...",
 }
 
 
@@ -143,7 +156,9 @@ def run() -> None:
     # resolve_game once locked onto one) — a prompt instruction alone
     # doesn't reliably stop it from reaching for a tool it can still see.
     resolve_graph = build_live_graph(tools=[resolve_game])
-    qa_graph = build_live_graph(tools=[get_play_by_play, get_boxscore, get_matchups])
+    qa_graph = build_live_graph(
+        tools=[get_play_by_play, get_boxscore, get_matchups, get_hustle_stats]
+    )
 
     print("Which game are you watching? (e.g. 'Lakers vs Celtics', or 'Lakers Celtics from Jan 15')")
     resolve_prompt = RESOLVE_SYSTEM_PROMPT_TEMPLATE.format(today=today)

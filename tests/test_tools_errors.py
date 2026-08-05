@@ -6,6 +6,7 @@ from nba_live_agent.nba_client import (
     GAME_STATUS_LIVE,
     GAME_STATUS_NOT_STARTED,
     _get_boxscore_raw,
+    _get_hustle_stats_raw,
     _get_matchups_raw,
     _get_play_by_play_raw,
     _matching_teams,
@@ -346,5 +347,50 @@ def test_matchups_api_error():
         nba_client.boxscorematchupsv3, "BoxScoreMatchupsV3", side_effect=ValueError("boom")
     ):
         result = _get_matchups_raw("0022500001", "Brunson")
+
+    assert result["status"] == "api_error"
+
+
+def test_hustle_stats_ok():
+    with patch.object(nba_client.boxscorehustlev2, "BoxScoreHustleV2") as mock_hustle:
+        mock_hustle.return_value.team_stats = _fake_dataset(
+            headers=["teamId", "teamName"],
+            rows=[[100, "Lakers"], [200, "Thunder"]],
+        )
+        mock_hustle.return_value.player_stats = _fake_dataset(
+            headers=[
+                "teamId", "firstName", "familyName", "teamTricode", "screenAssists",
+                "deflections", "chargesDrawn", "boxOuts", "contestedShots",
+                "looseBallsRecoveredTotal",
+            ],
+            rows=[
+                [100, "Rui", "Hachimura", "LAL", 3, 2, 1, 4, 5, 2],
+                [200, "Chet", "Holmgren", "OKC", 1, 4, 0, 6, 3, 1],
+            ],
+        )
+        result = _get_hustle_stats_raw("0022500001")
+
+    assert result["status"] == "ok"
+    assert result["home_team"] == "Lakers"
+    assert result["away_team"] == "Thunder"
+    assert result["home_players"][0]["name"] == "Rui Hachimura"
+    assert result["home_players"][0]["screen_assists"] == 3
+    assert result["away_players"][0]["name"] == "Chet Holmgren"
+
+
+def test_hustle_stats_no_data_means_not_started():
+    with patch.object(nba_client.boxscorehustlev2, "BoxScoreHustleV2") as mock_hustle:
+        mock_hustle.return_value.team_stats = _fake_dataset(headers=[], rows=[])
+        mock_hustle.return_value.player_stats = _fake_dataset(headers=[], rows=[])
+        result = _get_hustle_stats_raw("0022500001")
+
+    assert result["status"] == "game_not_started"
+
+
+def test_hustle_stats_api_error():
+    with patch.object(
+        nba_client.boxscorehustlev2, "BoxScoreHustleV2", side_effect=ValueError("boom")
+    ):
+        result = _get_hustle_stats_raw("0022500001")
 
     assert result["status"] == "api_error"

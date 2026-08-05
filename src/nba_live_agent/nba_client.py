@@ -8,6 +8,7 @@ from datetime import datetime
 
 from nba_api.live.nba.endpoints import boxscore, playbyplay, scoreboard
 from nba_api.stats.endpoints import (
+    boxscorehustlev2,
     boxscorematchupsv3,
     boxscoretraditionalv3,
     playbyplayv3,
@@ -396,6 +397,57 @@ def _matchup_line(row: dict) -> dict:
         "points_allowed": row.get("playerPoints"),
         "field_goals_made_allowed": row.get("matchupFieldGoalsMade"),
         "field_goals_attempted_allowed": row.get("matchupFieldGoalsAttempted"),
+    }
+
+
+def _hustle_line_from_row(row: dict) -> dict:
+    return {
+        "name": f"{row.get('firstName', '')} {row.get('familyName', '')}".strip(),
+        "team_tricode": row.get("teamTricode"),
+        "screen_assists": row.get("screenAssists"),
+        "deflections": row.get("deflections"),
+        "charges_drawn": row.get("chargesDrawn"),
+        "box_outs": row.get("boxOuts"),
+        "contested_shots": row.get("contestedShots"),
+        "loose_balls_recovered": row.get("looseBallsRecoveredTotal"),
+    }
+
+
+def _get_hustle_stats_raw(game_id: str) -> dict:
+    """Per-player hustle-stat totals for a game (screen assists, deflections,
+    charges drawn, box outs, contested shots, loose balls recovered) — NBA's
+    "Hustle Stats" tracking data. These are per-player game totals only, not
+    paired to a specific teammate/possession, so this can answer "who had
+    the most screen assists" but not "who screened for X specifically" (see
+    issue #16). stats.nba.com only, no live-feed equivalent to try first.
+    """
+    try:
+        hustle = boxscorehustlev2.BoxScoreHustleV2(game_id=game_id)
+        team_rows = _rows_as_dicts(hustle.team_stats)
+        player_rows = _rows_as_dicts(hustle.player_stats)
+    except Exception as e:
+        return {
+            "status": "api_error",
+            "message": f"Couldn't reach NBA's stats data feed: {e}",
+        }
+
+    if len(team_rows) < 2:
+        return {
+            "status": "game_not_started",
+            "message": "The game hasn't tipped off yet, or hustle stats aren't available for it.",
+        }
+
+    home_team, away_team = team_rows[0], team_rows[1]
+    return {
+        "status": "ok",
+        "home_team": home_team["teamName"],
+        "away_team": away_team["teamName"],
+        "home_players": [
+            _hustle_line_from_row(p) for p in player_rows if p["teamId"] == home_team["teamId"]
+        ],
+        "away_players": [
+            _hustle_line_from_row(p) for p in player_rows if p["teamId"] == away_team["teamId"]
+        ],
     }
 
 
