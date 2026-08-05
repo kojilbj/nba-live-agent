@@ -3,3 +3,4 @@ langgraph
 langchain-google-genai
 python-dotenv
 pytest
+flake8
