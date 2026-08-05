@@ -4,6 +4,10 @@
       {
         "matcher": "replace_file_content|write_to_file|multi_replace_file_content",
         "script": ".agents/scripts/run-tests.sh"
+      },
+      {
+        "matcher": "replace_file_content|write_to_file|multi_replace_file_content",
+        "script": ".agents/scripts/run-lint.sh"
       }
     ]
   }
