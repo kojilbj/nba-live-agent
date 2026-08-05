@@ -7,7 +7,7 @@ gameStatus convention (per nba_api's live scoreboard/boxscore payloads):
 from datetime import datetime
 
 from nba_api.live.nba.endpoints import boxscore, playbyplay, scoreboard
-from nba_api.stats.endpoints import scoreboardv2
+from nba_api.stats.endpoints import boxscoretraditionalv3, playbyplayv3, scoreboardv2
 from nba_api.stats.static import teams
 
 GAME_STATUS_NOT_STARTED = 1
@@ -21,6 +21,14 @@ def _normalize(text: str) -> str:
 
 def _format_matchup(game: dict) -> str:
     return f"{game['awayTeam']['teamName']} @ {game['homeTeam']['teamName']}"
+
+
+def _rows_as_dicts(data_set) -> list[dict]:
+    """V3 stats endpoints (unlike the legacy resultSets-based ones) return a
+    plain headers/data table per dataset rather than something
+    get_normalized_dict() understands, so zip them ourselves."""
+    raw = data_set.get_dict()
+    return [dict(zip(raw["headers"], row)) for row in raw["data"]]
 
 
 def _matching_teams(query: str) -> list[dict]:
@@ -175,26 +183,7 @@ def _game_status(game_id: str) -> int:
     return box.game.get_dict()["gameStatus"]
 
 
-def _get_play_by_play_raw(game_id: str, period: int | None = None) -> dict:
-    """Chronological play events for a game, optionally filtered to one period."""
-    try:
-        status = _game_status(game_id)
-        if status == GAME_STATUS_NOT_STARTED:
-            return {
-                "status": "game_not_started",
-                "events": [],
-                "message": "The game hasn't tipped off yet.",
-            }
-
-        pbp = playbyplay.PlayByPlay(game_id)
-        actions = pbp.actions.get_dict()
-    except Exception as e:
-        return {
-            "status": "api_error",
-            "events": [],
-            "message": f"Couldn't reach NBA's live data feed: {e}",
-        }
-
+def _events_from_actions(actions: list[dict], period: int | None) -> dict:
     current_period = max((a["period"] for a in actions), default=0)
     if period is not None and period > current_period:
         return {
@@ -223,6 +212,58 @@ def _get_play_by_play_raw(game_id: str, period: int | None = None) -> dict:
     return {"status": "ok", "events": events}
 
 
+def _get_play_by_play_via_stats_raw(game_id: str, period: int | None) -> dict:
+    """Fallback for games the live feed no longer has (see
+    _get_play_by_play_raw). stats.nba.com keeps full-season history, so this
+    works for any past game regardless of age — at the cost of not reflecting
+    a game that's live right now, which the live feed would.
+    """
+    try:
+        pbp = playbyplayv3.PlayByPlayV3(game_id=game_id)
+        actions = _rows_as_dicts(pbp.play_by_play)
+    except Exception as e:
+        return {
+            "status": "api_error",
+            "events": [],
+            "message": f"Couldn't reach NBA's stats data feed either: {e}",
+        }
+
+    if not actions:
+        return {
+            "status": "game_not_started",
+            "events": [],
+            "message": "The game hasn't tipped off yet.",
+        }
+
+    return _events_from_actions(actions, period)
+
+
+def _get_play_by_play_raw(game_id: str, period: int | None = None) -> dict:
+    """Chronological play events for a game, optionally filtered to one
+    period. Tries the live data feed first (lowest latency for a game
+    that's actually in progress); falls back to the stats feed's
+    historical play-by-play when the live feed doesn't have this game
+    anymore — confirmed via an empty response for games as little as a few
+    months old, so this isn't a rare edge case for anything but very
+    recent games.
+    """
+    try:
+        status = _game_status(game_id)
+        if status == GAME_STATUS_NOT_STARTED:
+            return {
+                "status": "game_not_started",
+                "events": [],
+                "message": "The game hasn't tipped off yet.",
+            }
+
+        pbp = playbyplay.PlayByPlay(game_id)
+        actions = pbp.actions.get_dict()
+    except Exception:
+        return _get_play_by_play_via_stats_raw(game_id, period)
+
+    return _events_from_actions(actions, period)
+
+
 def _player_line(player: dict, team_tricode: str) -> dict:
     stats = player["statistics"]
     return {
@@ -239,16 +280,65 @@ def _player_line(player: dict, team_tricode: str) -> dict:
     }
 
 
-def _get_boxscore_raw(game_id: str) -> dict:
-    """Current live stats snapshot for a game."""
+def _player_line_from_stats(row: dict) -> dict:
+    return {
+        "name": f"{row.get('firstName', '')} {row.get('familyName', '')}".strip(),
+        "team_tricode": row.get("teamTricode"),
+        "minutes": row.get("minutes"),
+        "points": row.get("points"),
+        "assists": row.get("assists"),
+        "rebounds": row.get("reboundsTotal"),
+        "field_goals_made": row.get("fieldGoalsMade"),
+        "field_goals_attempted": row.get("fieldGoalsAttempted"),
+        "three_pointers_made": row.get("threePointersMade"),
+        "three_pointers_attempted": row.get("threePointersAttempted"),
+    }
+
+
+def _get_boxscore_via_stats_raw(game_id: str) -> dict:
+    """Fallback for games the live feed no longer has (see _get_boxscore_raw).
+
+    PlayerStats rows don't mark home/away directly; TeamStats always lists
+    home before away (per nba_api's own parser), so we read team identity
+    from there and partition players by teamId.
+    """
     try:
-        box = boxscore.BoxScore(game_id)
-        game = box.game.get_dict()
+        box = boxscoretraditionalv3.BoxScoreTraditionalV3(game_id=game_id)
+        team_rows = _rows_as_dicts(box.team_stats)
+        player_rows = _rows_as_dicts(box.player_stats)
     except Exception as e:
         return {
             "status": "api_error",
-            "message": f"Couldn't reach NBA's live data feed: {e}",
+            "message": f"Couldn't reach NBA's stats data feed either: {e}",
         }
+
+    if len(team_rows) < 2:
+        return {"status": "game_not_started", "message": "The game hasn't tipped off yet."}
+
+    home_team, away_team = team_rows[0], team_rows[1]
+    return {
+        "status": "ok",
+        "home_team": home_team["teamName"],
+        "away_team": away_team["teamName"],
+        "home_players": [
+            _player_line_from_stats(p) for p in player_rows if p["teamId"] == home_team["teamId"]
+        ],
+        "away_players": [
+            _player_line_from_stats(p) for p in player_rows if p["teamId"] == away_team["teamId"]
+        ],
+    }
+
+
+def _get_boxscore_raw(game_id: str) -> dict:
+    """Current live stats snapshot for a game. Tries the live data feed
+    first; falls back to the stats feed's historical boxscore when the live
+    feed doesn't have this game anymore (see _get_play_by_play_raw for why).
+    """
+    try:
+        box = boxscore.BoxScore(game_id)
+        game = box.game.get_dict()
+    except Exception:
+        return _get_boxscore_via_stats_raw(game_id)
 
     if game["gameStatus"] == GAME_STATUS_NOT_STARTED:
         return {"status": "game_not_started", "message": "The game hasn't tipped off yet."}
