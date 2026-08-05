@@ -88,3 +88,20 @@ class HustleStatsResult(BaseModel):
     home_players: list[HustleLine] = []
     away_players: list[HustleLine] = []
     message: str | None = None
+
+
+class XPost(BaseModel):
+    handle: str
+    author: str
+    content: str
+    timestamp: str | None = None
+    url: str | None = None
+
+
+class XInsightsResult(BaseModel):
+    status: Literal["ok", "no_posts_found", "api_error"]
+    query: str
+    posts: list[XPost] = []
+    is_mock: bool = False
+    message: str | None = None
+

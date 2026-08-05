@@ -16,10 +16,19 @@ from nba_live_agent.tools import (
     get_hustle_stats,
     get_matchups,
     get_play_by_play,
+    get_x_expert_insights,
     resolve_game,
 )
 
-TOOLS = [resolve_game, get_play_by_play, get_boxscore, get_matchups, get_hustle_stats]
+TOOLS = [
+    resolve_game,
+    get_play_by_play,
+    get_boxscore,
+    get_matchups,
+    get_hustle_stats,
+    get_x_expert_insights,
+]
+
 
 
 class AgentState(TypedDict):

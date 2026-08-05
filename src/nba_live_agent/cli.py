@@ -29,6 +29,7 @@ from nba_live_agent.tools import (
     get_hustle_stats,
     get_matchups,
     get_play_by_play,
+    get_x_expert_insights,
     resolve_game,
 )
 
@@ -53,20 +54,13 @@ QA_SYSTEM_PROMPT_TEMPLATE = (
     "You are an NBA in-game analyst. Today's date is {today}. You are "
     "already locked onto a specific game — game_id={game_id} ({away_team} "
     "@ {home_team}) — so do not call resolve_game; use get_play_by_play, "
-    "get_boxscore, get_matchups, and get_hustle_stats directly with this "
-    "game_id to answer the question below. Give a causal, specific answer "
-    "grounded in that data, not a generic stat dump. Defensive matchup "
-    "questions ('who guarded X the most', 'how did X do against Y') aren't "
-    "answerable from play-by-play or boxscore data — call get_matchups for "
-    "those rather than guessing from playing time or position. Hustle-stat "
-    "questions ('who had the most screen assists/deflections/charges "
-    "drawn/box outs', etc.) — call get_hustle_stats; these are whole-game "
-    "totals per player, not paired to a specific teammate, so a question "
-    "like 'who screened for X specifically' isn't answerable from this or "
-    "any other tool — say so plainly rather than guessing. If the requested "
-    "period hasn't been played yet, or a named player doesn't appear in the "
-    "tool results, say so plainly instead of guessing or fabricating an "
-    "answer."
+    "get_boxscore, get_matchups, get_hustle_stats, and get_x_expert_insights directly "
+    "with this game_id or team/player names to answer questions. Give a causal, specific "
+    "answer grounded in data. Use get_x_expert_insights when questions ask for tactical context, "
+    "defensive schemes, or reasons behind poor/strong performance that raw boxscore stats alone "
+    "do not explain. Defensive matchup questions ('who guarded X the most') — call get_matchups. "
+    "Hustle-stat questions — call get_hustle_stats. If the requested period hasn't been played "
+    "yet, or a named player doesn't appear in the tool results, say so plainly instead of guessing."
 )
 
 TOOL_STATUS_MESSAGES = {
@@ -75,7 +69,9 @@ TOOL_STATUS_MESSAGES = {
     "get_boxscore": "Checking the boxscore...",
     "get_matchups": "Checking matchup data...",
     "get_hustle_stats": "Checking hustle stats...",
+    "get_x_expert_insights": "Searching X for expert commentary...",
 }
+
 
 
 def _run_turn(graph, messages: list, session_usage: dict) -> list:

@@ -5,13 +5,14 @@ documentation for humans.
 
 from langchain_core.tools import tool
 
-from nba_live_agent import nba_client
+from nba_live_agent import nba_client, x_client
 from nba_live_agent.models import (
     BoxScoreResult,
     GameResolution,
     HustleStatsResult,
     MatchupsResult,
     PlayByPlayResult,
+    XInsightsResult,
 )
 
 
@@ -133,3 +134,17 @@ def get_hustle_stats(game_id: str) -> HustleStatsResult:
         away_players=raw.get("away_players", []),
         message=raw.get("message"),
     )
+
+
+@tool
+def get_x_expert_insights(query: str) -> XInsightsResult:
+    """Get qualitative tactical insights and expert observations from X (formerly Twitter).
+
+    Use this tool when a question asks for tactical context, defense adjustments,
+    or reasons behind performance that raw stats alone do not fully explain
+    (e.g., "Why is LeBron struggling in the 3rd quarter?", "What tactical adjustments did Lakers make?").
+
+    query can be a team name (e.g. "Lakers"), a player name (e.g. "Steph Curry"), or a combination.
+    """
+    return x_client.get_x_insights(query)
+
