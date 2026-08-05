@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from nba_live_agent.agent import build_live_graph
-from nba_live_agent.tools import get_boxscore, get_play_by_play, resolve_game
+from nba_live_agent.tools import get_boxscore, get_matchups, get_play_by_play, resolve_game
 
 RESOLVE_SYSTEM_PROMPT_TEMPLATE = (
     "You are an NBA in-game analyst. Today's date is {today}. Your only job "
@@ -46,18 +46,22 @@ RESOLVE_SYSTEM_PROMPT_TEMPLATE = (
 QA_SYSTEM_PROMPT_TEMPLATE = (
     "You are an NBA in-game analyst. Today's date is {today}. You are "
     "already locked onto a specific game — game_id={game_id} ({away_team} "
-    "@ {home_team}) — so do not call resolve_game; use get_play_by_play "
-    "and get_boxscore directly with this game_id to answer the question "
-    "below. Give a causal, specific answer grounded in that data, not a "
-    "generic stat dump. If the requested period hasn't been played yet, or "
-    "a named player doesn't appear in the tool results, say so plainly "
-    "instead of guessing or fabricating an answer."
+    "@ {home_team}) — so do not call resolve_game; use get_play_by_play, "
+    "get_boxscore, and get_matchups directly with this game_id to answer "
+    "the question below. Give a causal, specific answer grounded in that "
+    "data, not a generic stat dump. Defensive matchup questions ('who "
+    "guarded X the most', 'how did X do against Y') aren't answerable from "
+    "play-by-play or boxscore data — call get_matchups for those rather "
+    "than guessing from playing time or position. If the requested period "
+    "hasn't been played yet, or a named player doesn't appear in the tool "
+    "results, say so plainly instead of guessing or fabricating an answer."
 )
 
 TOOL_STATUS_MESSAGES = {
     "resolve_game": "Looking up the game...",
     "get_play_by_play": "Pulling play-by-play...",
     "get_boxscore": "Checking the boxscore...",
+    "get_matchups": "Checking matchup data...",
 }
 
 
@@ -139,7 +143,7 @@ def run() -> None:
     # resolve_game once locked onto one) — a prompt instruction alone
     # doesn't reliably stop it from reaching for a tool it can still see.
     resolve_graph = build_live_graph(tools=[resolve_game])
-    qa_graph = build_live_graph(tools=[get_play_by_play, get_boxscore])
+    qa_graph = build_live_graph(tools=[get_play_by_play, get_boxscore, get_matchups])
 
     print("Which game are you watching? (e.g. 'Lakers vs Celtics', or 'Lakers Celtics from Jan 15')")
     resolve_prompt = RESOLVE_SYSTEM_PROMPT_TEMPLATE.format(today=today)

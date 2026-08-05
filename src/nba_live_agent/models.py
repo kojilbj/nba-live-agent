@@ -51,3 +51,20 @@ class BoxScoreResult(BaseModel):
     home_players: list[PlayerLine] = []
     away_players: list[PlayerLine] = []
     message: str | None = None
+
+
+class MatchupLine(BaseModel):
+    defender_name: str
+    defender_team_tricode: str | None
+    matchup_minutes: str | None
+    partial_possessions: float | None
+    points_allowed: int | None
+    field_goals_made_allowed: int | None
+    field_goals_attempted_allowed: int | None
+
+
+class MatchupsResult(BaseModel):
+    status: Literal["ok", "game_not_started", "player_not_found", "api_error"]
+    player_name: str | None = None
+    matchups: list[MatchupLine] = []
+    message: str | None = None

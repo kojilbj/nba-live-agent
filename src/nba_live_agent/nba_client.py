@@ -7,7 +7,12 @@ gameStatus convention (per nba_api's live scoreboard/boxscore payloads):
 from datetime import datetime
 
 from nba_api.live.nba.endpoints import boxscore, playbyplay, scoreboard
-from nba_api.stats.endpoints import boxscoretraditionalv3, playbyplayv3, scoreboardv2
+from nba_api.stats.endpoints import (
+    boxscorematchupsv3,
+    boxscoretraditionalv3,
+    playbyplayv3,
+    scoreboardv2,
+)
 from nba_api.stats.static import teams
 
 GAME_STATUS_NOT_STARTED = 1
@@ -379,4 +384,64 @@ def _get_boxscore_raw(game_id: str) -> dict:
         "away_team": away["teamName"],
         "home_players": [_player_line(p, home["teamTricode"]) for p in home["players"]],
         "away_players": [_player_line(p, away["teamTricode"]) for p in away["players"]],
+    }
+
+
+def _matchup_line(row: dict) -> dict:
+    return {
+        "defender_name": f"{row.get('firstNameDef', '')} {row.get('familyNameDef', '')}".strip(),
+        "defender_team_tricode": row.get("teamTricode"),
+        "matchup_minutes": row.get("matchupMinutes"),
+        "partial_possessions": row.get("partialPossessions"),
+        "points_allowed": row.get("playerPoints"),
+        "field_goals_made_allowed": row.get("matchupFieldGoalsMade"),
+        "field_goals_attempted_allowed": row.get("matchupFieldGoalsAttempted"),
+    }
+
+
+def _get_matchups_raw(game_id: str, player_name: str) -> dict:
+    """Per-defender breakdown of who guarded a given (offensive) player and
+    for how long, sorted by time spent guarding them (most first). This is
+    NBA Advanced Stats' "Matchups" tracking data — it only exists on
+    stats.nba.com, there's no live-feed equivalent to try first.
+    """
+    try:
+        matchups = boxscorematchupsv3.BoxScoreMatchupsV3(game_id=game_id)
+        rows = _rows_as_dicts(matchups.player_stats)
+    except Exception as e:
+        return {
+            "status": "api_error",
+            "matchups": [],
+            "message": f"Couldn't reach NBA's stats data feed: {e}",
+        }
+
+    if not rows:
+        return {
+            "status": "game_not_started",
+            "matchups": [],
+            "message": "The game hasn't tipped off yet, or matchup data isn't available for it.",
+        }
+
+    q = _normalize(player_name)
+    target_rows = [
+        r
+        for r in rows
+        if q in _normalize(f"{r.get('firstNameOff', '')} {r.get('familyNameOff', '')}")
+        or q in _normalize(r.get("nameIOff") or "")
+    ]
+
+    if not target_rows:
+        return {
+            "status": "player_not_found",
+            "matchups": [],
+            "message": f"No player matching '{player_name}' found in this game.",
+        }
+
+    target_rows.sort(key=lambda r: r.get("matchupMinutesSort") or 0, reverse=True)
+    matched_player = f"{target_rows[0].get('firstNameOff', '')} {target_rows[0].get('familyNameOff', '')}".strip()
+
+    return {
+        "status": "ok",
+        "player_name": matched_player,
+        "matchups": [_matchup_line(r) for r in target_rows],
     }
