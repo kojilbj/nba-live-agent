@@ -24,10 +24,14 @@ def resolve_game(query: str, date: str = "today") -> GameResolution:
     instead — the system prompt tells you today's date, so convert relative
     terms like "yesterday" or "last night" to a concrete date yourself.
 
-    Returns status="ok" with a game_id on a single unambiguous match,
-    status="not_found" if no game matches, "ambiguous" if the query matches
-    more than one game on that date (ask the user to clarify), or
-    "unsupported_date" if the date string couldn't be parsed.
+    Returns status="ok" with a game_id on a single unambiguous match.
+    status="not_found" means no game matched the query; if games were
+    scheduled that date anyway, available_games lists all of them — read
+    this out to the user as numbered options instead of just saying "not
+    found" and stopping. status="ambiguous" means the query matched more
+    than one game on that date; candidates lists them the same way — ask
+    the user to pick one rather than guessing. status="unsupported_date"
+    means the date string couldn't be parsed.
     """
     raw = nba_client._resolve_game_raw(query, date)
     return GameResolution(
@@ -36,6 +40,8 @@ def resolve_game(query: str, date: str = "today") -> GameResolution:
         home_team=raw.get("home_team"),
         away_team=raw.get("away_team"),
         message=raw.get("message"),
+        candidates=raw.get("candidates", []),
+        available_games=raw.get("available_games", []),
     )
 
 

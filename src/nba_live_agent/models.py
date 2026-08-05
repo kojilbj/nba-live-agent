@@ -9,6 +9,8 @@ class GameResolution(BaseModel):
     home_team: str | None = None
     away_team: str | None = None
     message: str | None = None
+    candidates: list[str] = []
+    available_games: list[str] = []
 
 
 class PlayEvent(BaseModel):

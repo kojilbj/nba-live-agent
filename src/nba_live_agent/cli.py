@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from nba_live_agent.agent import build_live_graph
+from nba_live_agent.tools import get_boxscore, get_play_by_play, resolve_game
 
 RESOLVE_SYSTEM_PROMPT_TEMPLATE = (
     "You are an NBA in-game analyst. Today's date is {today}. Your only job "
@@ -22,8 +23,13 @@ RESOLVE_SYSTEM_PROMPT_TEMPLATE = (
     "past or future game — if the user names a game that isn't today's "
     "(e.g. 'yesterday', 'last night', 'the Lakers Celtics game from January "
     "15'), convert that to a concrete date yourself and pass it. If the "
-    "match is ambiguous or not found, explain why and ask the user to "
-    "clarify."
+    "result is ambiguous or not found, don't just say so and stop — "
+    "resolve_game's candidates/available_games field lists the real games "
+    "on that date; present those as a numbered list ('1. Lakers @ "
+    "Celtics', '2. ...') and ask the user to pick one, so they can respond "
+    "with a number instead of having to type a team name precisely. Only "
+    "fall back to asking them to re-describe the game if that list is "
+    "empty too."
 )
 
 QA_SYSTEM_PROMPT_TEMPLATE = (
@@ -114,9 +120,15 @@ def _extract_game_info(messages) -> dict | None:
 
 def run() -> None:
     load_dotenv()
-    graph = build_live_graph()
     today = date.today().isoformat()
     session_usage = {"total_tokens": 0}
+
+    # Separate graphs per phase so the model literally cannot call
+    # get_boxscore/get_play_by_play while resolving the game (or
+    # resolve_game once locked onto one) — a prompt instruction alone
+    # doesn't reliably stop it from reaching for a tool it can still see.
+    resolve_graph = build_live_graph(tools=[resolve_game])
+    qa_graph = build_live_graph(tools=[get_play_by_play, get_boxscore])
 
     print("Which game are you watching? (e.g. 'Lakers vs Celtics', or 'Lakers Celtics from Jan 15')")
     resolve_prompt = RESOLVE_SYSTEM_PROMPT_TEMPLATE.format(today=today)
@@ -128,7 +140,7 @@ def run() -> None:
         if not game_description:
             continue
         messages.append(HumanMessage(f"The game I'm watching is: {game_description}"))
-        messages = _run_turn(graph, messages, session_usage)
+        messages = _run_turn(resolve_graph, messages, session_usage)
 
         game_info = _extract_game_info(messages)
         if game_info:
@@ -160,7 +172,7 @@ def run() -> None:
         # Fresh message list per question — only game_id/team names (baked
         # into qa_prompt) carry over, not prior turns' tool outputs.
         turn_messages = [SystemMessage(qa_prompt), HumanMessage(question)]
-        _run_turn(graph, turn_messages, session_usage)
+        _run_turn(qa_graph, turn_messages, session_usage)
 
 
 if __name__ == "__main__":
