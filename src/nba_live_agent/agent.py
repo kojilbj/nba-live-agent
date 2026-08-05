@@ -14,17 +14,24 @@ from pydantic import BaseModel
 from nba_live_agent.tools import get_boxscore, get_play_by_play, resolve_game
 
 TOOLS = [resolve_game, get_play_by_play, get_boxscore]
-TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
 
-def build_graph(model_with_tools):
-    """Takes any chat model with .bind_tools(TOOLS) already applied, so the
+def build_graph(model_with_tools, tools):
+    """Takes any chat model with .bind_tools(tools) already applied, so the
     loop wiring can be tested independently of which model/API is behind it.
+
+    tools must be exactly what was bound to model_with_tools — the graph
+    only executes what the model can see, so callers that want to restrict
+    which tools are available in a given phase (e.g. resolve-only vs.
+    QA-only) do so by binding a narrower list, not by prompting the model
+    not to call the rest. A prompt instruction alone doesn't reliably stop
+    the model from calling a tool it can technically still see.
     """
+    tools_by_name = {t.name: t for t in tools}
 
     def agent_node(state: AgentState) -> dict:
         response = model_with_tools.invoke(state["messages"])
@@ -34,7 +41,7 @@ def build_graph(model_with_tools):
         last_message = state["messages"][-1]
         outputs = []
         for call in last_message.tool_calls:
-            result = TOOLS_BY_NAME[call["name"]].invoke(call["args"])
+            result = tools_by_name[call["name"]].invoke(call["args"])
             content = result.model_dump_json() if isinstance(result, BaseModel) else str(result)
             outputs.append(
                 ToolMessage(content=content, name=call["name"], tool_call_id=call["id"])
@@ -54,7 +61,7 @@ def build_graph(model_with_tools):
     return graph.compile()
 
 
-def build_live_graph(model: str = "gemini-3.5-flash-lite"):
+def build_live_graph(tools: list = TOOLS, model: str = "gemini-3.5-flash-lite"):
     """Wires the loop to the real Gemini model. Pinned to the Flash-Lite tier
     (current-gen "3.5" family, not "2.5" — Google has been cutting off new-key
     access to older generations, e.g. gemini-2.5-flash) rather than
@@ -63,9 +70,13 @@ def build_live_graph(model: str = "gemini-3.5-flash-lite"):
     easy to exhaust during dev/testing, and Flash-Lite is ~5x cheaper per
     token besides. See https://ai.google.dev/gemini-api/docs/models and
     https://ai.google.dev/gemini-api/docs/pricing.
+
+    tools defaults to the full TOOLS list but callers building a
+    phase-restricted graph (see build_graph's docstring) should pass a
+    narrower list explicitly.
     """
     # No temperature kwarg: gemini-3.5-flash-lite uses fixed sampling
     # defaults and ignores it, so passing temperature=0 only produced a
     # UserWarning on every call with no effect.
     llm = ChatGoogleGenerativeAI(model=model)
-    return build_graph(llm.bind_tools(TOOLS))
+    return build_graph(llm.bind_tools(tools), tools)
