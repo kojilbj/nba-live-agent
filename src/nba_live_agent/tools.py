@@ -9,6 +9,7 @@ from nba_live_agent import nba_client
 from nba_live_agent.models import (
     BoxScoreResult,
     GameResolution,
+    HustleStatsResult,
     MatchupsResult,
     PlayByPlayResult,
 )
@@ -107,5 +108,28 @@ def get_matchups(game_id: str, player_name: str) -> MatchupsResult:
         status=raw["status"],
         player_name=raw.get("player_name"),
         matchups=raw.get("matchups", []),
+        message=raw.get("message"),
+    )
+
+
+@tool
+def get_hustle_stats(game_id: str) -> HustleStatsResult:
+    """Get per-player hustle-stat totals for a game: screen assists,
+    deflections, charges drawn, box outs, contested shots, and loose balls
+    recovered, for every player on both teams.
+
+    Use this for "who had the most screen assists/deflections/charges
+    drawn/etc. in the game" questions. These are whole-game totals per
+    player, NOT paired to a specific teammate or possession — this tool
+    cannot answer "who screened for X specifically" or "how many times did X
+    screen for Y"; say that's not available rather than guessing if asked.
+    """
+    raw = nba_client._get_hustle_stats_raw(game_id)
+    return HustleStatsResult(
+        status=raw["status"],
+        home_team=raw.get("home_team"),
+        away_team=raw.get("away_team"),
+        home_players=raw.get("home_players", []),
+        away_players=raw.get("away_players", []),
         message=raw.get("message"),
     )
