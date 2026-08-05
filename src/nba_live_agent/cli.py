@@ -9,6 +9,17 @@ process runs either way.
 import json
 from datetime import date
 
+try:
+    # Importing readline (unused directly) hooks input() into GNU
+    # Readline/libedit for line editing — arrow-key cursor movement,
+    # backspace-word, history. Without it, input() falls back to a raw
+    # line read where left/right arrows print escape codes instead of
+    # moving the cursor. Not available on Windows, whose console handles
+    # line editing natively anyway.
+    import readline  # noqa: F401
+except ImportError:
+    pass
+
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
