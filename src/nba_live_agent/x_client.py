@@ -1,8 +1,7 @@
+import json
 import os
 import time
 import urllib.request
-import json
-from typing import Any
 
 from nba_live_agent.models import XInsightsResult, XPost
 
@@ -25,7 +24,6 @@ CACHE_TTL_SECONDS = 120.0
 
 
 def _generate_mock_posts(query: str) -> list[XPost]:
-    q_lower = query.lower()
     posts: list[XPost] = []
 
     # Mock post 1: Steve Jones Jr. (Tactical Adjustment)
@@ -33,7 +31,10 @@ def _generate_mock_posts(query: str) -> list[XPost]:
         XPost(
             handle="stevejones20",
             author="Steve Jones Jr.",
-            content=f"Noticed an immediate adjustment for {query.title()}: they stopped dropping on high pick-and-rolls and switched aggressively on ball screens to take away open 3s.",
+            content=(
+                f"Noticed an immediate adjustment for {query.title()}: they stopped dropping "
+                "on high pick-and-rolls and switched aggressively on ball screens to take away open 3s."
+            ),
             timestamp="10m ago",
             url="https://x.com/stevejones20/status/1000000000000000001",
         )
@@ -44,7 +45,11 @@ def _generate_mock_posts(query: str) -> list[XPost]:
         XPost(
             handle="ChrisSasaki",
             author="佐々木クリス",
-            content=f"{query.title()}の今日のセットオフェンス、相手のヘッジディフェンスに対してショートローラー経由でコーナースリーを徹底的に突く修正が見事ですね。スペーシングが非常に効いています。",
+            content=(
+                f"{query.title()}の今日のセットオフェンス、相手のヘッジディフェンスに対して"
+                "ショートローラー経由でコーナースリーを徹底的に突く修正が見事ですね。"
+                "スペーシングが非常に効いています。"
+            ),
             timestamp="15m ago",
             url="https://x.com/ChrisSasaki/status/1000000000000000002",
         )
@@ -55,7 +60,10 @@ def _generate_mock_posts(query: str) -> list[XPost]:
         XPost(
             handle="ThinkingBBall",
             author="Thinking Basketball",
-            content=f"When {query.title()} attacks in transition, their rim frequency jumps to 45%. In half-court sets against drop coverage, efficiency dips significantly without secondary playmaking.",
+            content=(
+                f"When {query.title()} attacks in transition, their rim frequency jumps to 45%. "
+                "In half-court sets against drop coverage, efficiency dips significantly without secondary playmaking."
+            ),
             timestamp="30m ago",
             url="https://x.com/ThinkingBBall/status/1000000000000000003",
         )
@@ -66,7 +74,10 @@ def _generate_mock_posts(query: str) -> list[XPost]:
         XPost(
             handle="NekiasNBA",
             author="Nekias Duncan",
-            content=f"Great defensive rotations on {query.title()} tonight. Watch how the weak-side helper tags the roller before recovering to the shooter. Pure textbook execution.",
+            content=(
+                f"Great defensive rotations on {query.title()} tonight. Watch how the weak-side helper tags "
+                "the roller before recovering to the shooter. Pure textbook execution."
+            ),
             timestamp="45m ago",
             url="https://x.com/NekiasNBA/status/1000000000000000004",
         )
@@ -116,7 +127,8 @@ def get_x_insights(query: str, use_cache: bool = True) -> XInsightsResult:
     # Real X API v2 search endpoint call when token is available
     try:
         encoded_query = urllib.parse.quote(f"{clean_query} is:verified")
-        url = f"https://api.twitter.com/2/tweets/search/recent?query={encoded_query}&max_results=10&tweet.fields=created_at,author_id"
+        endpoint = "https://api.twitter.com/2/tweets/search/recent"
+        url = f"{endpoint}?query={encoded_query}&max_results=10&tweet.fields=created_at,author_id"
         req = urllib.request.Request(
             url,
             headers={
@@ -124,6 +136,7 @@ def get_x_insights(query: str, use_cache: bool = True) -> XInsightsResult:
                 "User-Agent": "nba-live-agent/1.0",
             },
         )
+
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             raw_tweets = data.get("data", [])

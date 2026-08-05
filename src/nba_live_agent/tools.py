@@ -147,4 +147,3 @@ def get_x_expert_insights(query: str) -> XInsightsResult:
     query can be a team name (e.g. "Lakers"), a player name (e.g. "Steph Curry"), or a combination.
     """
     return x_client.get_x_insights(query)
-

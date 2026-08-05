@@ -104,4 +104,3 @@ class XInsightsResult(BaseModel):
     posts: list[XPost] = []
     is_mock: bool = False
     message: str | None = None
-

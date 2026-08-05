@@ -29,9 +29,9 @@ from nba_live_agent.tools import (
     get_hustle_stats,
     get_matchups,
     get_play_by_play,
-    get_x_expert_insights,
     resolve_game,
 )
+
 
 RESOLVE_SYSTEM_PROMPT_TEMPLATE = (
     "You are an NBA in-game analyst. Today's date is {today}. Your only job "
@@ -73,8 +73,8 @@ TOOL_STATUS_MESSAGES = {
 }
 
 
-
 def _run_turn(graph, messages: list, session_usage: dict) -> list:
+
     """Streams the graph step by step instead of one blocking invoke() so we
     can print what the agent is doing (which tool, or "thinking") while it
     works, rather than leaving the terminal silent for several seconds.
