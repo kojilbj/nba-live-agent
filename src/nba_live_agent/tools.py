@@ -9,6 +9,7 @@ from nba_live_agent import nba_client
 from nba_live_agent.models import (
     BoxScoreResult,
     GameResolution,
+    MatchupsResult,
     PlayByPlayResult,
 )
 
@@ -80,5 +81,31 @@ def get_boxscore(game_id: str) -> BoxScoreResult:
         away_team=raw.get("away_team"),
         home_players=raw.get("home_players", []),
         away_players=raw.get("away_players", []),
+        message=raw.get("message"),
+    )
+
+
+@tool
+def get_matchups(game_id: str, player_name: str) -> MatchupsResult:
+    """Get defensive matchup data for a game: every opponent who guarded the
+    named player, sorted by how much time they spent matched up against
+    them (most first), with their stats in that specific matchup (points
+    allowed, shooting allowed, etc.).
+
+    Use this for defense-specific questions standard boxscore/play-by-play
+    data can't answer, e.g. "who guarded Brunson the most?" or "how did he
+    do against Fox specifically?" — do NOT guess or infer matchups from
+    playing time/position; call this instead. matchups[0] is whoever spent
+    the most time on the named player.
+
+    status="player_not_found" means no player in this game matched
+    player_name — double-check the spelling with the user rather than
+    guessing who they meant.
+    """
+    raw = nba_client._get_matchups_raw(game_id, player_name)
+    return MatchupsResult(
+        status=raw["status"],
+        player_name=raw.get("player_name"),
+        matchups=raw.get("matchups", []),
         message=raw.get("message"),
     )

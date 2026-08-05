@@ -11,9 +11,9 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
-from nba_live_agent.tools import get_boxscore, get_play_by_play, resolve_game
+from nba_live_agent.tools import get_boxscore, get_matchups, get_play_by_play, resolve_game
 
-TOOLS = [resolve_game, get_play_by_play, get_boxscore]
+TOOLS = [resolve_game, get_play_by_play, get_boxscore, get_matchups]
 
 
 class AgentState(TypedDict):

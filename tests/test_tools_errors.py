@@ -6,6 +6,7 @@ from nba_live_agent.nba_client import (
     GAME_STATUS_LIVE,
     GAME_STATUS_NOT_STARTED,
     _get_boxscore_raw,
+    _get_matchups_raw,
     _get_play_by_play_raw,
     _matching_teams,
     _resolve_game_raw,
@@ -283,5 +284,67 @@ def test_boxscore_stats_fallback_also_fails():
         ),
     ):
         result = _get_boxscore_raw("0022500001")
+
+    assert result["status"] == "api_error"
+
+
+def _fake_matchup_row(off_first, off_last, def_first, def_last, minutes_sort, **extra):
+    row = {
+        "firstNameOff": off_first,
+        "familyNameOff": off_last,
+        "nameIOff": f"{off_first[0]}. {off_last}",
+        "firstNameDef": def_first,
+        "familyNameDef": def_last,
+        "teamTricode": extra.get("teamTricode", "SAS"),
+        "matchupMinutes": extra.get("matchupMinutes", "5:00"),
+        "matchupMinutesSort": minutes_sort,
+        "partialPossessions": extra.get("partialPossessions", 4.0),
+        "playerPoints": extra.get("playerPoints", 2),
+        "matchupFieldGoalsMade": extra.get("matchupFieldGoalsMade", 1),
+        "matchupFieldGoalsAttempted": extra.get("matchupFieldGoalsAttempted", 2),
+    }
+    return row
+
+
+def test_matchups_sorted_by_time_guarded_most_first():
+    rows = [
+        _fake_matchup_row("Jalen", "Brunson", "De'Aaron", "Fox", 300, matchupMinutes="5:00"),
+        _fake_matchup_row("Jalen", "Brunson", "Stephon", "Castle", 720, matchupMinutes="12:00"),
+    ]
+    with patch.object(nba_client.boxscorematchupsv3, "BoxScoreMatchupsV3") as mock_matchups:
+        mock_matchups.return_value.player_stats = _fake_dataset(
+            headers=list(rows[0].keys()), rows=[list(r.values()) for r in rows]
+        )
+        result = _get_matchups_raw("0022500001", "brunson")
+
+    assert result["status"] == "ok"
+    assert result["player_name"] == "Jalen Brunson"
+    assert [m["defender_name"] for m in result["matchups"]] == ["Stephon Castle", "De'Aaron Fox"]
+
+
+def test_matchups_player_not_found():
+    rows = [_fake_matchup_row("Jalen", "Brunson", "De'Aaron", "Fox", 300)]
+    with patch.object(nba_client.boxscorematchupsv3, "BoxScoreMatchupsV3") as mock_matchups:
+        mock_matchups.return_value.player_stats = _fake_dataset(
+            headers=list(rows[0].keys()), rows=[list(r.values()) for r in rows]
+        )
+        result = _get_matchups_raw("0022500001", "Nonexistent Player")
+
+    assert result["status"] == "player_not_found"
+
+
+def test_matchups_no_data_means_not_started():
+    with patch.object(nba_client.boxscorematchupsv3, "BoxScoreMatchupsV3") as mock_matchups:
+        mock_matchups.return_value.player_stats = _fake_dataset(headers=[], rows=[])
+        result = _get_matchups_raw("0022500001", "Brunson")
+
+    assert result["status"] == "game_not_started"
+
+
+def test_matchups_api_error():
+    with patch.object(
+        nba_client.boxscorematchupsv3, "BoxScoreMatchupsV3", side_effect=ValueError("boom")
+    ):
+        result = _get_matchups_raw("0022500001", "Brunson")
 
     assert result["status"] == "api_error"
