@@ -114,6 +114,33 @@ def test_resolve_game_past_date_not_found():
     assert result["status"] == "not_found"
 
 
+def test_resolve_game_finds_conditional_game_with_tbd_home_team():
+    """A conditional playoff slot (e.g. Finals "if necessary") can have
+    HOME_TEAM_ID come back null straight from the API, with no home team
+    at all in the data yet - not just something we failed to map. It should
+    still be findable via the known (away) side, with home reported as TBD.
+    """
+    with patch.object(nba_client.scoreboardv2, "ScoreboardV2") as mock_sb:
+        mock_sb.return_value.get_normalized_dict.return_value = {
+            "GameHeader": [_fake_game_header("0042500405", None, 1610612752, GAME_STATUS_NOT_STARTED)]
+        }
+        result = _resolve_game_raw("Knicks", "2026-06-13")
+
+    assert result["status"] == "ok"
+    assert result["away_team"] == "Knicks"
+    assert result["home_team"] == "TBD"
+
+
+def test_resolve_game_drops_games_with_no_known_team_at_all():
+    with patch.object(nba_client.scoreboardv2, "ScoreboardV2") as mock_sb:
+        mock_sb.return_value.get_normalized_dict.return_value = {
+            "GameHeader": [_fake_game_header("0042500406", None, None, GAME_STATUS_NOT_STARTED)]
+        }
+        result = _resolve_game_raw("Knicks", "2026-06-14")
+
+    assert result["status"] == "not_found"
+
+
 def test_play_by_play_period_not_played():
     with patch.object(nba_client, "_game_status", return_value=GAME_STATUS_LIVE), patch.object(
         nba_client.playbyplay, "PlayByPlay"

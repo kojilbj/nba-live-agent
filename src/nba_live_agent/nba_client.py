@@ -90,13 +90,23 @@ def _games_for_date_raw(date: str) -> dict:
     for gh in game_headers:
         home = teams_by_id.get(gh["HOME_TEAM_ID"])
         away = teams_by_id.get(gh["VISITOR_TEAM_ID"])
-        if not home or not away:
+        if not home and not away:
+            # Neither side is a known team - nothing usable to match or show.
             continue
+        # Conditional/contingent playoff slots (e.g. a Finals "if necessary"
+        # game) can be scheduled with only one side determined - HOME_TEAM_ID
+        # comes back null from the API itself, not just unmapped here. Keep
+        # the game findable by whichever side *is* known instead of
+        # dropping it, with a placeholder for the undetermined side.
         games.append(
             {
                 "gameId": gh["GAME_ID"],
-                "homeTeam": {"teamId": home["id"], "teamName": home["nickname"]},
-                "awayTeam": {"teamId": away["id"], "teamName": away["nickname"]},
+                "homeTeam": {"teamId": home["id"], "teamName": home["nickname"]}
+                if home
+                else {"teamId": None, "teamName": "TBD"},
+                "awayTeam": {"teamId": away["id"], "teamName": away["nickname"]}
+                if away
+                else {"teamId": None, "teamName": "TBD"},
                 "gameStatus": gh["GAME_STATUS_ID"],
             }
         )
