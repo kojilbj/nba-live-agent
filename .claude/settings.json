@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"/Users/watanabekoji/Desktop/nba-live-agent/.claude/hooks/run-tests.sh\"",
+            "statusMessage": "Running pytest..."
+          }
+        ]
+      }
+    ]
+  }
+}
