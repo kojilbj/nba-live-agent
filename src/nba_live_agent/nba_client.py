@@ -20,6 +20,8 @@ GAME_STATUS_NOT_STARTED = 1
 GAME_STATUS_LIVE = 2
 GAME_STATUS_FINAL = 3
 
+DEFAULT_TIMEOUT = 5
+
 
 def _normalize(text: str) -> str:
     return text.lower().strip()
@@ -78,7 +80,7 @@ def _games_for_today_raw() -> dict:
     _resolve_game_raw's return value.
     """
     try:
-        sb = scoreboard.ScoreBoard()
+        sb = scoreboard.ScoreBoard(timeout=DEFAULT_TIMEOUT)
         games = sb.games.get_dict()
     except Exception as e:
         return {
@@ -101,7 +103,7 @@ def _games_for_date_raw(date: str) -> dict:
         # 2025-10-22..2025-12-25 games; we only read GameHeader (team ids +
         # status), which isn't affected, and V2's normalized dict is far
         # simpler to work with than V3's headers/rows tables.
-        sb = scoreboardv2.ScoreboardV2(game_date=date)
+        sb = scoreboardv2.ScoreboardV2(game_date=date, timeout=DEFAULT_TIMEOUT)
         game_headers = sb.get_normalized_dict()["GameHeader"]
     except Exception as e:
         return {
@@ -110,6 +112,7 @@ def _games_for_date_raw(date: str) -> dict:
         }
 
     teams_by_id = {team["id"]: team for team in teams.get_teams()}
+
     games = []
     for gh in game_headers:
         home = teams_by_id.get(gh["HOME_TEAM_ID"])
@@ -213,7 +216,7 @@ def _resolve_game_raw(query: str, date: str = "today") -> dict:
 
 
 def _game_status(game_id: str) -> int:
-    box = boxscore.BoxScore(game_id)
+    box = boxscore.BoxScore(game_id, timeout=DEFAULT_TIMEOUT)
     return box.game.get_dict()["gameStatus"]
 
 
@@ -253,7 +256,7 @@ def _get_play_by_play_via_stats_raw(game_id: str, period: int | None) -> dict:
     a game that's live right now, which the live feed would.
     """
     try:
-        pbp = playbyplayv3.PlayByPlayV3(game_id=game_id)
+        pbp = playbyplayv3.PlayByPlayV3(game_id=game_id, timeout=DEFAULT_TIMEOUT)
         actions = _rows_as_dicts(pbp.play_by_play)
     except Exception as e:
         return {
@@ -290,7 +293,7 @@ def _get_play_by_play_raw(game_id: str, period: int | None = None) -> dict:
                 "message": "The game hasn't tipped off yet.",
             }
 
-        pbp = playbyplay.PlayByPlay(game_id)
+        pbp = playbyplay.PlayByPlay(game_id, timeout=DEFAULT_TIMEOUT)
         actions = pbp.actions.get_dict()
     except Exception:
         return _get_play_by_play_via_stats_raw(game_id, period)
@@ -337,7 +340,7 @@ def _get_boxscore_via_stats_raw(game_id: str) -> dict:
     from there and partition players by teamId.
     """
     try:
-        box = boxscoretraditionalv3.BoxScoreTraditionalV3(game_id=game_id)
+        box = boxscoretraditionalv3.BoxScoreTraditionalV3(game_id=game_id, timeout=DEFAULT_TIMEOUT)
         team_rows = _rows_as_dicts(box.team_stats)
         player_rows = _rows_as_dicts(box.player_stats)
     except Exception as e:
@@ -369,7 +372,7 @@ def _get_boxscore_raw(game_id: str) -> dict:
     feed doesn't have this game anymore (see _get_play_by_play_raw for why).
     """
     try:
-        box = boxscore.BoxScore(game_id)
+        box = boxscore.BoxScore(game_id, timeout=DEFAULT_TIMEOUT)
         game = box.game.get_dict()
     except Exception:
         return _get_boxscore_via_stats_raw(game_id)
@@ -422,7 +425,7 @@ def _get_hustle_stats_raw(game_id: str) -> dict:
     issue #16). stats.nba.com only, no live-feed equivalent to try first.
     """
     try:
-        hustle = boxscorehustlev2.BoxScoreHustleV2(game_id=game_id)
+        hustle = boxscorehustlev2.BoxScoreHustleV2(game_id=game_id, timeout=DEFAULT_TIMEOUT)
         team_rows = _rows_as_dicts(hustle.team_stats)
         player_rows = _rows_as_dicts(hustle.player_stats)
     except Exception as e:
@@ -458,7 +461,7 @@ def _get_matchups_raw(game_id: str, player_name: str) -> dict:
     stats.nba.com, there's no live-feed equivalent to try first.
     """
     try:
-        matchups = boxscorematchupsv3.BoxScoreMatchupsV3(game_id=game_id)
+        matchups = boxscorematchupsv3.BoxScoreMatchupsV3(game_id=game_id, timeout=DEFAULT_TIMEOUT)
         rows = _rows_as_dicts(matchups.player_stats)
     except Exception as e:
         return {
