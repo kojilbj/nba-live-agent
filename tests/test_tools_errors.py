@@ -28,6 +28,16 @@ def test_resolve_game_not_found():
         result = _resolve_game_raw("Nonsense Team", "today")
 
     assert result["status"] == "not_found"
+    assert result["available_games"] == ["Lakers @ Celtics"]
+
+
+def test_resolve_game_not_found_no_games_lists_nothing():
+    with patch.object(nba_client.scoreboard, "ScoreBoard") as mock_sb:
+        mock_sb.return_value.games.get_dict.return_value = []
+        result = _resolve_game_raw("Nonsense Team", "today")
+
+    assert result["status"] == "not_found"
+    assert "available_games" not in result
 
 
 def test_resolve_game_ambiguous():
