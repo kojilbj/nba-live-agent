@@ -1,0 +1,167 @@
+"""Interactive CLI: resolve the game once, then answer each question as its
+own fresh turn (system prompt + question only) rather than accumulating
+conversation history — the only state carried across questions is the
+resolved game_id/team names baked into the per-question system prompt, so
+per-question cost doesn't grow with session length. No persistence across
+process runs either way.
+"""
+
+import json
+from datetime import date
+
+from dotenv import load_dotenv
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+
+from nba_live_agent.agent import build_live_graph
+
+RESOLVE_SYSTEM_PROMPT_TEMPLATE = (
+    "You are an NBA in-game analyst. Today's date is {today}. Your only job "
+    "right now is to resolve which game the user is watching via "
+    "resolve_game. resolve_game's date param defaults to today's "
+    "live/scheduled slate, but also accepts a specific YYYY-MM-DD date for a "
+    "past or future game — if the user names a game that isn't today's "
+    "(e.g. 'yesterday', 'last night', 'the Lakers Celtics game from January "
+    "15'), convert that to a concrete date yourself and pass it. If the "
+    "match is ambiguous or not found, explain why and ask the user to "
+    "clarify."
+)
+
+QA_SYSTEM_PROMPT_TEMPLATE = (
+    "You are an NBA in-game analyst. Today's date is {today}. You are "
+    "already locked onto a specific game — game_id={game_id} ({away_team} "
+    "@ {home_team}) — so do not call resolve_game; use get_play_by_play "
+    "and get_boxscore directly with this game_id to answer the question "
+    "below. Give a causal, specific answer grounded in that data, not a "
+    "generic stat dump. If the requested period hasn't been played yet, or "
+    "a named player doesn't appear in the tool results, say so plainly "
+    "instead of guessing or fabricating an answer."
+)
+
+TOOL_STATUS_MESSAGES = {
+    "resolve_game": "Looking up the game...",
+    "get_play_by_play": "Pulling play-by-play...",
+    "get_boxscore": "Checking the boxscore...",
+}
+
+
+def _run_turn(graph, messages: list, session_usage: dict) -> list:
+    """Streams the graph step by step instead of one blocking invoke() so we
+    can print what the agent is doing (which tool, or "thinking") while it
+    works, rather than leaving the terminal silent for several seconds.
+
+    Prints the final answer itself (or an error) rather than leaving that to
+    the caller, since a mid-turn failure (API quota, network) means there's
+    no new AIMessage for the caller to print. Returns messages as far as the
+    turn got, unchanged from the input on failure, so the session can
+    continue instead of crashing.
+
+    Each agent-node LLM call reports its own token usage via
+    AIMessage.usage_metadata; summing those across the turn (and across
+    turns via session_usage) gives real measured token counts instead of an
+    estimate — a growing conversation resends its whole history every turn,
+    so cost isn't just proportional to what you typed this time.
+    """
+    print("Thinking...")
+    all_messages = list(messages)
+    turn_tokens = 0
+    try:
+        for update in graph.stream({"messages": messages}, stream_mode="updates"):
+            for node_name, node_output in update.items():
+                new_messages = node_output["messages"]
+                all_messages.extend(new_messages)
+                if node_name == "agent":
+                    last = new_messages[-1]
+                    usage = getattr(last, "usage_metadata", None)
+                    if usage:
+                        turn_tokens += usage.get("total_tokens", 0)
+                    for call in getattr(last, "tool_calls", []):
+                        status = TOOL_STATUS_MESSAGES.get(call["name"], f"Calling {call['name']}...")
+                        print(f"  {status}")
+    except Exception as e:
+        print(f"Something went wrong talking to the model: {e}")
+        return all_messages
+
+    session_usage["total_tokens"] += turn_tokens
+    print(_last_ai_message(all_messages).text)
+    print(f"[tokens — this turn: {turn_tokens:,} | session total: {session_usage['total_tokens']:,}]")
+    return all_messages
+
+
+def _last_ai_message(messages) -> AIMessage:
+    for message in reversed(messages):
+        if isinstance(message, AIMessage):
+            return message
+    raise RuntimeError("No AIMessage found in graph output.")
+
+
+def _extract_game_info(messages) -> dict | None:
+    """Pull the resolved game_id/team names out of resolve_game's ToolMessage,
+    if resolution succeeded this turn. This is the one piece of state that
+    carries forward across questions — everything else in the turn's
+    messages (tool calls, raw play-by-play/boxscore payloads) is discarded
+    once the answer is printed, so per-question cost doesn't grow with
+    session length.
+    """
+    for message in reversed(messages):
+        if isinstance(message, ToolMessage) and message.name == "resolve_game":
+            try:
+                data = json.loads(message.content)
+            except (json.JSONDecodeError, AttributeError):
+                return None
+            return data if data.get("status") == "ok" else None
+    return None
+
+
+def run() -> None:
+    load_dotenv()
+    graph = build_live_graph()
+    today = date.today().isoformat()
+    session_usage = {"total_tokens": 0}
+
+    print("Which game are you watching? (e.g. 'Lakers vs Celtics', or 'Lakers Celtics from Jan 15')")
+    resolve_prompt = RESOLVE_SYSTEM_PROMPT_TEMPLATE.format(today=today)
+    messages = [SystemMessage(resolve_prompt)]
+
+    game_info = None
+    while True:
+        game_description = input("> ").strip()
+        if not game_description:
+            continue
+        messages.append(HumanMessage(f"The game I'm watching is: {game_description}"))
+        messages = _run_turn(graph, messages, session_usage)
+
+        game_info = _extract_game_info(messages)
+        if game_info:
+            break
+        print("Let's try again — describe the game you're watching.")
+
+    print("\nAsk questions about the game. Type 'quit' or 'exit' to end.\n")
+
+    qa_prompt = QA_SYSTEM_PROMPT_TEMPLATE.format(
+        today=today,
+        game_id=game_info["game_id"],
+        away_team=game_info.get("away_team"),
+        home_team=game_info.get("home_team"),
+    )
+
+    while True:
+        try:
+            question = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nGoodbye.")
+            break
+
+        if question.lower() in ("quit", "exit"):
+            print("Goodbye.")
+            break
+        if not question:
+            continue
+
+        # Fresh message list per question — only game_id/team names (baked
+        # into qa_prompt) carry over, not prior turns' tool outputs.
+        turn_messages = [SystemMessage(qa_prompt), HumanMessage(question)]
+        _run_turn(graph, turn_messages, session_usage)
+
+
+if __name__ == "__main__":
+    run()
