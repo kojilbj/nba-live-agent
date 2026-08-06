@@ -38,6 +38,14 @@ flake8
 
 Two-node LangGraph loop:
 
+```mermaid
+flowchart LR
+    In(["messages"]) --> Agent
+    Agent["agent node<br/>calls Gemini"] -- "tool_calls" --> Tools["tools node<br/>runs tools in parallel"]
+    Tools -- "ToolMessage(s)<br/>appended to messages" --> Agent
+    Agent -- "no tool_calls" --> Out(["final answer"])
+```
+
 - **`agent` node** — Gemini (via `langchain-google-genai`) with tools bound. Given the running message history, decides whether to call a tool or produce a final answer.
 - **`tools` node** — executes whichever tool(s) the `agent` node requested, in parallel (via a thread pool) when the model requests more than one.
 
