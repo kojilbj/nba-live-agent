@@ -17,7 +17,7 @@ EXPERT_ACCOUNTS = [
     {"handle": "ZachLowe_NBA", "name": "Zach Lowe"},
     {"handle": "MoDakhil_NBA", "name": "Mo Dakhil"},
     {"handle": "bencfalk", "name": "Ben Falk (Cleaning The Glass)"},
-    {"handle": "CaitlinCooperNBA", "name": "Caitlin Cooper"},
+    {"handle": "C2_Cooper", "name": "Caitlin Cooper"},
     {"handle": "StephNoh", "name": "Steph Noh"},
 ]
 
@@ -131,7 +131,8 @@ def get_x_insights(query: str, use_cache: bool = True) -> XInsightsResult:
 
     # Real X API v2 search endpoint call when token is available
     try:
-        encoded_query = urllib.parse.quote(f"{clean_query} is:verified")
+        handles_clause = " OR ".join(f"from:{acc['handle']}" for acc in EXPERT_ACCOUNTS)
+        encoded_query = urllib.parse.quote(f"({handles_clause}) {clean_query}")
         endpoint = "https://api.twitter.com/2/tweets/search/recent"
         url = f"{endpoint}?query={encoded_query}&max_results=10&tweet.fields=created_at,author_id"
         req = urllib.request.Request(
