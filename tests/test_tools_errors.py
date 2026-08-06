@@ -144,9 +144,36 @@ def test_games_for_window_raw_skips_failed_day_and_continues():
     ):
         result = nba_client._games_for_window_raw(center, radius_days=2)
 
-    # One of five days failed, but the window as a whole still succeeds.
+    # One stats-feed day failed (and the rest of the stats-feed days get
+    # short-circuited, see the dedicated test below), but today's live feed
+    # is unaffected, so the window as a whole still succeeds.
     assert result["status"] == "ok"
     assert result["games"] == []
+
+
+def test_games_for_window_raw_stops_retrying_stats_feed_after_first_failure():
+    """Once one stats-feed day fails, the remaining stats-feed days in the
+    window should be skipped outright rather than each independently
+    retrying a feed that's very likely down for all of them (e.g. the
+    Akamai tarpit quirk) - only the live feed (today) keeps being tried.
+    """
+    center = date(2026, 1, 16)
+    calls = []
+
+    def fake_for_date(day_str):
+        calls.append(day_str)
+        return {"status": "api_error", "message": "timeout"}
+
+    with (
+        patch.object(nba_client, "_games_for_today_raw", return_value={"status": "ok", "games": []}),
+        patch.object(nba_client, "_games_for_date_raw", side_effect=fake_for_date),
+    ):
+        result = nba_client._games_for_window_raw(center, radius_days=2)
+
+    # Only the first stats-feed day (offset -2, the first one visited)
+    # should actually be attempted; 2026-01-15/-17/-18 must never be called.
+    assert calls == ["2026-01-14"]
+    assert result["status"] == "ok"  # today's live feed still succeeded
 
 
 def test_games_for_window_raw_all_days_fail_is_api_error():

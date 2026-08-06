@@ -192,19 +192,41 @@ def _games_for_window_raw(center: date_cls, radius_days: int = 2) -> dict:
     If a single day's fetch fails, that day is skipped (logged as a
     warning) rather than failing the whole window - only returns
     status="api_error" if every day in the window failed.
+
+    The stats feed already retries each request 3x with backoff on its own
+    (see _with_retry); a broad outage there (e.g. the Akamai tarpit quirk -
+    see README) means every remaining stats-feed day in the window would
+    otherwise repeat that same multi-retry timeout for nothing. Once one
+    stats-feed day fails, the rest are skipped without retrying - the live
+    feed (today) is unaffected and still tried normally.
     """
     games: list[dict] = []
     failures = 0
     total = 2 * radius_days + 1
+    stats_feed_down = False
 
     for offset in range(-radius_days, radius_days + 1):
         day = center + timedelta(days=offset)
         day_str = day.strftime("%Y-%m-%d")
-        fetch = _games_for_today_raw() if offset == 0 else _games_for_date_raw(day_str)
+
+        if offset == 0:
+            fetch = _games_for_today_raw()
+        elif stats_feed_down:
+            failures += 1
+            logger.warning(
+                "Skipping %s in resolve_game window: stats feed already failed earlier in this "
+                "window search, not retrying",
+                day_str,
+            )
+            continue
+        else:
+            fetch = _games_for_date_raw(day_str)
 
         if fetch["status"] != "ok":
             failures += 1
             logger.warning("Skipping %s in resolve_game window: %s", day_str, fetch.get("message"))
+            if offset != 0:
+                stats_feed_down = True
             continue
 
         for game in fetch["games"]:
