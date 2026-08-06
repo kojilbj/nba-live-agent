@@ -4,6 +4,7 @@ to the agent node. This two-node loop *is* the "agentic loop."
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Sequence, TypedDict
 
 from langchain_core.messages import BaseMessage, ToolMessage
@@ -11,6 +12,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
+
 
 from nba_live_agent.tools import (
     get_boxscore,
@@ -59,23 +61,28 @@ def build_graph(model_with_tools, tools):
             raise
         return {"messages": [response]}
 
+    def _execute_tool_call(call):
+        try:
+            result = tools_by_name[call["name"]].invoke(call["args"])
+        except Exception:
+            logger.exception("Tool %s failed (args=%s)", call["name"], call["args"])
+            raise
+        content = result.model_dump_json() if isinstance(result, BaseModel) else str(result)
+        return ToolMessage(content=content, name=call["name"], tool_call_id=call["id"])
+
     def tools_node(state: AgentState) -> dict:
         last_message = state["messages"][-1]
-        outputs = []
-        for call in last_message.tool_calls:
-            try:
-                result = tools_by_name[call["name"]].invoke(call["args"])
-            except Exception:
-                logger.exception("Tool %s failed (args=%s)", call["name"], call["args"])
-                raise
-            content = result.model_dump_json() if isinstance(result, BaseModel) else str(result)
-            outputs.append(
-                ToolMessage(content=content, name=call["name"], tool_call_id=call["id"])
-            )
+        tool_calls = last_message.tool_calls
+        if not tool_calls:
+            return {"messages": []}
+
+        with ThreadPoolExecutor(max_workers=len(tool_calls)) as executor:
+            outputs = list(executor.map(_execute_tool_call, tool_calls))
         return {"messages": outputs}
 
     def should_continue(state: AgentState) -> str:
         last_message = state["messages"][-1]
+
         return "tools" if last_message.tool_calls else "end"
 
     graph = StateGraph(AgentState)
