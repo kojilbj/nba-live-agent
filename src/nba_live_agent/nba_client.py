@@ -6,7 +6,8 @@ gameStatus convention (per nba_api's live scoreboard/boxscore payloads):
 
 import logging
 import time
-from datetime import datetime
+from datetime import date as date_cls
+from datetime import datetime, timedelta
 
 from nba_api.live.nba.endpoints import boxscore, playbyplay, scoreboard
 from nba_api.stats.endpoints import (
@@ -181,37 +182,52 @@ def _games_for_date_raw(date: str) -> dict:
     return {"status": "ok", "games": games}
 
 
-def _resolve_game_raw(query: str, date: str = "today") -> dict:
-    """Find a game matching a free-text query like "Lakers vs Celtics" on the
-    given date (today's live slate, or a specific YYYY-MM-DD date — past or
-    future, live or already final).
+def _games_for_window_raw(center: date_cls, radius_days: int = 2) -> dict:
+    """Fetch games across [center - radius_days, center + radius_days]
+    (radius_days=2 -> 5 days total), tagging each game with the date it was
+    fetched for (as "gameDate") so callers can disambiguate/display it.
 
-    Returns a dict with one of:
-    - {"status": "ok", "game_id", "home_team", "away_team", "game_status"}
-    - {"status": "not_found", "message", "available_games": [...]} — games
-      were scheduled on that date, just none matched the query; lists them
-      all so the caller can offer them as options instead of dead-ending
-    - {"status": "ambiguous", "message", "candidates": [...]}
-    - {"status": "unsupported_date", "message"}
-    - {"status": "api_error", "message"}
+    The center day goes through the live feed (lower latency, live status);
+    the surrounding days go through the stats feed, one request per day.
+    If a single day's fetch fails, that day is skipped (logged as a
+    warning) rather than failing the whole window - only returns
+    status="api_error" if every day in the window failed.
     """
-    if date == "today":
-        fetch = _games_for_today_raw()
-        date_label = "today"
-    else:
-        try:
-            datetime.strptime(date, "%Y-%m-%d")
-        except ValueError:
-            return {
-                "status": "unsupported_date",
-                "message": f"'{date}' isn't a date I understand; use YYYY-MM-DD or 'today'.",
-            }
-        fetch = _games_for_date_raw(date)
-        date_label = date
+    games: list[dict] = []
+    failures = 0
+    total = 2 * radius_days + 1
 
-    if fetch["status"] != "ok":
-        return fetch
-    games = fetch["games"]
+    for offset in range(-radius_days, radius_days + 1):
+        day = center + timedelta(days=offset)
+        day_str = day.strftime("%Y-%m-%d")
+        fetch = _games_for_today_raw() if offset == 0 else _games_for_date_raw(day_str)
+
+        if fetch["status"] != "ok":
+            failures += 1
+            logger.warning("Skipping %s in resolve_game window: %s", day_str, fetch.get("message"))
+            continue
+
+        for game in fetch["games"]:
+            game["gameDate"] = day_str
+        games.extend(fetch["games"])
+
+    if failures == total:
+        return {
+            "status": "api_error",
+            "message": f"Couldn't reach NBA's data feeds for any day in the {total}-day window around {center}.",
+        }
+
+    return {"status": "ok", "games": games}
+
+
+def _match_games(games: list[dict], query: str, date_label: str, include_date_in_label: bool = False) -> dict:
+    """Shared "filter games by query, build ok/not_found/ambiguous" logic
+    used by both the date-window and single-date resolution paths.
+    """
+
+    def label(game: dict) -> str:
+        base = _format_matchup(game)
+        return f"{base} ({game['gameDate']})" if include_date_in_label else base
 
     if not games:
         return {
@@ -228,32 +244,78 @@ def _resolve_game_raw(query: str, date: str = "today") -> dict:
             matches.append(game)
 
     if not matches:
-        available = [_format_matchup(g) for g in games]
+        available = [label(g) for g in games]
         return {
             "status": "not_found",
             "message": (
-                f"No game on {date_label} matches '{query}'. Here's what's "
-                f"actually on {date_label}: {', '.join(available)}."
+                f"No game for {date_label} matches '{query}'. Here's what's "
+                f"actually on for {date_label}: {', '.join(available)}."
             ),
             "available_games": available,
         }
 
     if len(matches) > 1:
-        candidates = [_format_matchup(g) for g in matches]
+        candidates = [label(g) for g in matches]
         return {
             "status": "ambiguous",
-            "message": f"'{query}' matches multiple games on {date_label}: {', '.join(candidates)}.",
+            "message": f"'{query}' matches multiple games for {date_label}: {', '.join(candidates)}.",
             "candidates": candidates,
         }
 
     game = matches[0]
-    return {
+    result = {
         "status": "ok",
         "game_id": game["gameId"],
         "home_team": game["homeTeam"]["teamName"],
         "away_team": game["awayTeam"]["teamName"],
         "game_status": game["gameStatus"],
     }
+    if include_date_in_label:
+        result["game_date"] = game["gameDate"]
+    return result
+
+
+def _resolve_game_raw(query: str, date: str | None = None) -> dict:
+    """Find a game matching a free-text query like "Lakers vs Celtics".
+
+    date=None (the default): searches a 5-day window (today +/- 2 days) so
+    callers don't need to guess an exact date - team name alone is usually
+    enough. date="today": today's live slate only. date="YYYY-MM-DD": a
+    specific past or future date only, when the user names one explicitly.
+
+    Returns a dict with one of:
+    - {"status": "ok", "game_id", "home_team", "away_team", "game_status",
+      "game_date"} — game_date is only present for the date=None window path
+    - {"status": "not_found", "message", "available_games": [...]} — games
+      were scheduled in range, just none matched the query; lists them
+      all so the caller can offer them as options instead of dead-ending
+    - {"status": "ambiguous", "message", "candidates": [...]}
+    - {"status": "unsupported_date", "message"}
+    - {"status": "api_error", "message"}
+    """
+    if date is None:
+        fetch = _games_for_window_raw(datetime.now().date())
+        if fetch["status"] != "ok":
+            return fetch
+        return _match_games(fetch["games"], query, "the surrounding few days", include_date_in_label=True)
+
+    if date == "today":
+        fetch = _games_for_today_raw()
+        date_label = "today"
+    else:
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            return {
+                "status": "unsupported_date",
+                "message": f"'{date}' isn't a date I understand; use YYYY-MM-DD or 'today'.",
+            }
+        fetch = _games_for_date_raw(date)
+        date_label = date
+
+    if fetch["status"] != "ok":
+        return fetch
+    return _match_games(fetch["games"], query, date_label)
 
 
 def _game_status(game_id: str) -> int:

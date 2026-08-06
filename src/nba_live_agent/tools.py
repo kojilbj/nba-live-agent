@@ -17,24 +17,27 @@ from nba_live_agent.models import (
 
 
 @tool
-def resolve_game(query: str, date: str = "today") -> GameResolution:
+def resolve_game(query: str, date: str | None = None) -> GameResolution:
     """Resolve a free-text game description to a specific NBA game_id.
 
     Call this once at the start of a session to figure out which game the
-    user is watching or asking about, e.g. query="Lakers vs Celtics" or
-    query="BOS". date defaults to "today" (today's live/scheduled slate);
-    pass a specific "YYYY-MM-DD" date to resolve a past or future game
-    instead — the system prompt tells you today's date, so convert relative
-    terms like "yesterday" or "last night" to a concrete date yourself.
+    user is watching or asking about. Usually just pass query (e.g.
+    "Lakers vs Celtics" or "BOS") and leave date unset — this searches a
+    5-day window (today +/- 2 days) automatically, so you don't need to
+    guess or compute an exact date from relative phrasing like "yesterday"
+    yourself. Only pass a specific date="YYYY-MM-DD" when the user names an
+    explicit date (e.g. "the game on January 15th").
 
-    Returns status="ok" with a game_id on a single unambiguous match.
+    Returns status="ok" with a game_id on a single unambiguous match; when
+    resolved via the date window, game_date reports which day it fell on.
     status="not_found" means no game matched the query; if games were
-    scheduled that date anyway, available_games lists all of them — read
-    this out to the user as numbered options instead of just saying "not
-    found" and stopping. status="ambiguous" means the query matched more
-    than one game on that date; candidates lists them the same way — ask
-    the user to pick one rather than guessing. status="unsupported_date"
-    means the date string couldn't be parsed.
+    scheduled in range anyway, available_games lists all of them (each
+    tagged with its date when resolved via the window) — read this out to
+    the user as numbered options instead of just saying "not found" and
+    stopping. status="ambiguous" means the query matched more than one
+    game; candidates lists them the same way — ask the user to pick one
+    rather than guessing. status="unsupported_date" means an explicitly
+    passed date string couldn't be parsed.
     """
     raw = nba_client._resolve_game_raw(query, date)
     return GameResolution(
@@ -42,6 +45,7 @@ def resolve_game(query: str, date: str = "today") -> GameResolution:
         game_id=raw.get("game_id"),
         home_team=raw.get("home_team"),
         away_team=raw.get("away_team"),
+        game_date=raw.get("game_date"),
         message=raw.get("message"),
         candidates=raw.get("candidates", []),
         available_games=raw.get("available_games", []),

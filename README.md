@@ -42,7 +42,7 @@ At session start you name the game (e.g. "Lakers vs Celtics", or a specific date
 
 ### Tools
 
-- `resolve_game(query, date="today")` — free text → `game_id` + both team names. Returns a structured "not found" / "ambiguous" result (with candidates to pick from) rather than guessing.
+- `resolve_game(query, date=None)` — free text → `game_id` + both team names. Date defaults to unset, which searches a 5-day window (today ± 2 days) so the model doesn't have to guess an exact date from relative phrasing; pass `date="YYYY-MM-DD"` only when the user names one explicitly. Returns a structured "not found" / "ambiguous" result (candidates tagged with their date) rather than guessing.
 - `get_play_by_play(game_id, period=None)` — chronological events, optionally scoped to one period.
 - `get_boxscore(game_id)` — current live stats snapshot for every player.
 - `get_matchups(game_id, player_name)` — per-defender breakdown of who guarded a given player.
@@ -76,7 +76,7 @@ By default the CLI prints only its own status/answer output; console logging sta
 
 Automated tests mock every external call, so they don't catch a live API field renaming or an actual network-behavior change. Before trusting this against a real game:
 
-1. `python run.py`, describe a real in-progress or recent game (e.g. "Lakers vs Celtics"). If nothing's live right now, describe a specific past game instead (e.g. "Lakers vs Celtics from January 15" or "yesterday's Warriors game") — the agent should convert relative phrasing to a concrete date on its own.
+1. `python run.py`, describe a real in-progress or recent game by team name alone (e.g. "Lakers") — `resolve_game` should find it via the ±2-day window without needing a date. Confirm a team with more than one game in that window comes back as numbered candidates instead of guessing. For a game clearly outside the window, name a specific date instead (e.g. "Lakers vs Celtics from January 15").
 2. Ask a few of: "Why isn't LeBron scoring this quarter?", "How has Steph Curry been shooting in the second half?", "What's LeBron's shooting line for the game so far?", "Has Player X been on the bench a lot this period?"
 3. Confirm a second question doesn't re-trigger `resolve_game` (the session should hold the `game_id`).
 4. Force each error path once: a nonsense team name, a period beyond what's been played, a made-up player name.
