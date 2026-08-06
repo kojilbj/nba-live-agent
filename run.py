@@ -2,8 +2,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-
-from nba_live_agent.cli import run  # noqa: E402
+from nba_live_agent.cli import main  # noqa: E402
 
 if __name__ == "__main__":
-    run()
+    main()
