@@ -91,7 +91,10 @@ def _generate_mock_posts(query: str) -> list[XPost]:
 
 def get_x_insights(query: str, use_cache: bool = True) -> XInsightsResult:
     """Fetch expert posts on X relevant to the query (team or player).
-    Uses mock data when X_BEARER_TOKEN is not provided in environment variables.
+    Returns status="api_error" when X_BEARER_TOKEN isn't configured — this
+    tool is unavailable without a real API key, so callers shouldn't be
+    handed simulated posts as if they were genuine expert commentary.
+    Mock data is only used as a fallback when a configured request fails.
     Caching is applied with a default 2-minute TTL.
     """
     clean_query = query.strip()
@@ -115,14 +118,13 @@ def get_x_insights(query: str, use_cache: bool = True) -> XInsightsResult:
     bearer_token = os.getenv("X_BEARER_TOKEN")
 
     if not bearer_token:
-        # Fallback to mock data
-        mock_posts = _generate_mock_posts(clean_query)
+        logger.warning("X_BEARER_TOKEN is not set; get_x_expert_insights is unavailable")
         result = XInsightsResult(
-            status="ok",
+            status="api_error",
             query=clean_query,
-            posts=mock_posts,
-            is_mock=True,
-            message="Returned simulated expert insights from X (no X_BEARER_TOKEN set).",
+            posts=[],
+            is_mock=False,
+            message="X_BEARER_TOKEN is not set, so this tool is unavailable. Configure an X API key to use it.",
         )
         _CACHE[cache_key] = (now, result)
         return result

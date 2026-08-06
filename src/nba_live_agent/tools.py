@@ -145,5 +145,9 @@ def get_x_expert_insights(query: str) -> XInsightsResult:
     (e.g., "Why is LeBron struggling in the 3rd quarter?", "What tactical adjustments did Lakers make?").
 
     query can be a team name (e.g. "Lakers"), a player name (e.g. "Steph Curry"), or a combination.
+
+    status="api_error" means this tool is unavailable right now (e.g. no X API
+    key configured) — tell the user it's unavailable rather than treating the
+    message field as real commentary.
     """
     return x_client.get_x_insights(query)
