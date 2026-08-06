@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import MagicMock, patch
 
 from nba_live_agent import nba_client
@@ -216,8 +217,9 @@ def test_boxscore_ok():
     assert result["home_players"][0]["points"] == 21
 
 
-def test_play_by_play_falls_back_to_stats_when_live_feed_fails():
+def test_play_by_play_falls_back_to_stats_when_live_feed_fails(caplog):
     with (
+        caplog.at_level(logging.WARNING, logger="nba_live_agent.nba_client"),
         patch.object(nba_client, "_game_status", side_effect=ValueError("empty response")),
         patch.object(nba_client.playbyplayv3, "PlayByPlayV3") as mock_pbp,
     ):
@@ -234,10 +236,12 @@ def test_play_by_play_falls_back_to_stats_when_live_feed_fails():
 
     assert result["status"] == "ok"
     assert result["events"][0]["player_name"] == "R. Hachimura"
+    assert any(r.levelno == logging.WARNING and "falling back" in r.message for r in caplog.records)
 
 
-def test_play_by_play_stats_fallback_also_fails():
+def test_play_by_play_stats_fallback_also_fails(caplog):
     with (
+        caplog.at_level(logging.WARNING, logger="nba_live_agent.nba_client"),
         patch.object(nba_client, "_game_status", side_effect=ValueError("empty response")),
         patch.object(
             nba_client.playbyplayv3, "PlayByPlayV3", side_effect=ValueError("also empty")
@@ -246,10 +250,12 @@ def test_play_by_play_stats_fallback_also_fails():
         result = _get_play_by_play_raw("0022500001")
 
     assert result["status"] == "api_error"
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
 
 
-def test_boxscore_falls_back_to_stats_when_live_feed_fails():
+def test_boxscore_falls_back_to_stats_when_live_feed_fails(caplog):
     with (
+        caplog.at_level(logging.WARNING, logger="nba_live_agent.nba_client"),
         patch.object(nba_client.boxscore, "BoxScore", side_effect=ValueError("empty response")),
         patch.object(nba_client.boxscoretraditionalv3, "BoxScoreTraditionalV3") as mock_box,
     ):
@@ -274,10 +280,12 @@ def test_boxscore_falls_back_to_stats_when_live_feed_fails():
     assert result["away_team"] == "Thunder"
     assert result["home_players"][0]["name"] == "Rui Hachimura"
     assert result["away_players"] == []
+    assert any(r.levelno == logging.WARNING and "falling back" in r.message for r in caplog.records)
 
 
-def test_boxscore_stats_fallback_also_fails():
+def test_boxscore_stats_fallback_also_fails(caplog):
     with (
+        caplog.at_level(logging.WARNING, logger="nba_live_agent.nba_client"),
         patch.object(nba_client.boxscore, "BoxScore", side_effect=ValueError("empty response")),
         patch.object(
             nba_client.boxscoretraditionalv3,
@@ -288,6 +296,7 @@ def test_boxscore_stats_fallback_also_fails():
         result = _get_boxscore_raw("0022500001")
 
     assert result["status"] == "api_error"
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
 
 
 def _fake_matchup_row(off_first, off_last, def_first, def_last, minutes_sort, **extra):
