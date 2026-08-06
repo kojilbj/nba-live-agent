@@ -47,13 +47,17 @@ At session start you name the game (e.g. "Lakers vs Celtics", or a specific date
 - `get_boxscore(game_id)` — current live stats snapshot for every player.
 - `get_matchups(game_id, player_name)` — per-defender breakdown of who guarded a given player.
 - `get_hustle_stats(game_id)` — screen assists, deflections, charges drawn, box outs, contested shots, loose balls recovered.
-- `get_x_expert_insights(query)` — qualitative tactical commentary from a curated list of NBA analysts on X, for context raw stats don't explain (falls back to simulated posts without an `X_BEARER_TOKEN`, or if the real API call fails).
+- `get_x_expert_insights(query)` — qualitative tactical commentary from a curated list of NBA analysts on X, for context raw stats don't explain (falls back to simulated posts without an `X_BEARER_TOKEN`, or if the real API call fails). Real-time/recent games only — see [X commentary](#x-commentary) below.
 
 `nba_client.py` retries each `nba_api` call with backoff and falls back from the live feed to the historical stats feed when the live feed doesn't have a game anymore. All of this is decoupled from LangGraph — it's plain functions returning status dicts.
 
 ### Data source
 
 [`nba_api`](https://github.com/swar/nba_api) — free, open-source wrapper around NBA.com's data feeds. It's unofficial and technically against NBA.com's terms of use, which is common for projects like this but worth being upfront about.
+
+### X commentary
+
+`get_x_expert_insights` calls X API v2's `search/recent` endpoint, which only searches posts from the **last ~7 days**. It works well for a live or very recent game, but returns no results for older games — e.g. querying it about a Finals game from a couple months back returns nothing, even with a valid, working `X_BEARER_TOKEN`. Pulling commentary on older games would require X's separate (and significantly more expensive) full-archive search product, which this project doesn't use. In practice this means: real-time and recent games only, not a general historical archive.
 
 ## Logging
 
