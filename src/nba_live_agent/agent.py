@@ -3,6 +3,7 @@ tools node executes whichever tool(s) were requested, then control returns
 to the agent node. This two-node loop *is* the "agentic loop."
 """
 
+import logging
 from typing import Annotated, Sequence, TypedDict
 
 from langchain_core.messages import BaseMessage, ToolMessage
@@ -19,6 +20,8 @@ from nba_live_agent.tools import (
     get_x_expert_insights,
     resolve_game,
 )
+
+logger = logging.getLogger(__name__)
 
 TOOLS = [
     resolve_game,
@@ -49,14 +52,22 @@ def build_graph(model_with_tools, tools):
     tools_by_name = {t.name: t for t in tools}
 
     def agent_node(state: AgentState) -> dict:
-        response = model_with_tools.invoke(state["messages"])
+        try:
+            response = model_with_tools.invoke(state["messages"])
+        except Exception:
+            logger.exception("Model invocation failed")
+            raise
         return {"messages": [response]}
 
     def tools_node(state: AgentState) -> dict:
         last_message = state["messages"][-1]
         outputs = []
         for call in last_message.tool_calls:
-            result = tools_by_name[call["name"]].invoke(call["args"])
+            try:
+                result = tools_by_name[call["name"]].invoke(call["args"])
+            except Exception:
+                logger.exception("Tool %s failed (args=%s)", call["name"], call["args"])
+                raise
             content = result.model_dump_json() if isinstance(result, BaseModel) else str(result)
             outputs.append(
                 ToolMessage(content=content, name=call["name"], tool_call_id=call["id"])

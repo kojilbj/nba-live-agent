@@ -6,7 +6,9 @@ per-question cost doesn't grow with session length. No persistence across
 process runs either way.
 """
 
+import argparse
 import json
+import logging
 from datetime import date
 
 try:
@@ -24,6 +26,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from nba_live_agent.agent import build_live_graph
+from nba_live_agent.logging_config import configure_logging
 from nba_live_agent.tools import (
     get_boxscore,
     get_hustle_stats,
@@ -31,6 +34,8 @@ from nba_live_agent.tools import (
     get_play_by_play,
     resolve_game,
 )
+
+logger = logging.getLogger(__name__)
 
 
 RESOLVE_SYSTEM_PROMPT_TEMPLATE = (
@@ -108,6 +113,7 @@ def _run_turn(graph, messages: list, session_usage: dict) -> list:
                         status = TOOL_STATUS_MESSAGES.get(call["name"], f"Calling {call['name']}...")
                         print(f"  {status}")
     except Exception as e:
+        logger.exception("Graph execution failed")
         print(f"Something went wrong talking to the model: {e}")
         return all_messages
 
@@ -143,6 +149,13 @@ def _extract_game_info(messages) -> dict | None:
 
 
 def run() -> None:
+    parser = argparse.ArgumentParser(description="Interactive NBA live-game analyst CLI.")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Print DEBUG-level logs to the console."
+    )
+    args = parser.parse_args()
+    configure_logging(verbose=args.verbose)
+
     load_dotenv()
     today = date.today().isoformat()
     session_usage = {"total_tokens": 0}
