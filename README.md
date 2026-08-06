@@ -20,9 +20,12 @@ Without `X_BEARER_TOKEN`, `get_x_expert_insights` returns simulated expert comme
 ## Run
 
 ```bash
-python run.py            # interactive session
-python run.py --verbose  # also print DEBUG-level logs to the console
+python run.py                  # interactive session, X commentary off
+python run.py --verbose        # also print DEBUG-level logs to the console
+python run.py --x-commentary   # enable get_x_expert_insights (costs real money if X_BEARER_TOKEN is set — see below)
 ```
+
+**`get_x_expert_insights` is opt-in, off by default**, independent of whether `X_BEARER_TOKEN` is configured. X API v2 is pay-per-usage, not a flat subscription: **$0.005 per post read**, so a single call at `max_results=10` can cost up to $0.05 (see [X's pricing docs](https://docs.x.com/x-api/getting-started/pricing)). Caching (2-minute TTL) reduces repeat charges within a session, but it can still add up over a long session. Pass `--x-commentary` explicitly when you want it.
 
 ## Test
 
@@ -47,7 +50,7 @@ At session start you name the game (e.g. "Lakers vs Celtics", or a specific date
 - `get_boxscore(game_id)` — current live stats snapshot for every player.
 - `get_matchups(game_id, player_name)` — per-defender breakdown of who guarded a given player.
 - `get_hustle_stats(game_id)` — screen assists, deflections, charges drawn, box outs, contested shots, loose balls recovered.
-- `get_x_expert_insights(query)` — qualitative tactical commentary from a curated list of NBA analysts on X, for context raw stats don't explain (falls back to simulated posts without an `X_BEARER_TOKEN`, or if the real API call fails).
+- `get_x_expert_insights(query)` — qualitative tactical commentary from a curated list of NBA analysts on X, for context raw stats don't explain (falls back to simulated posts without an `X_BEARER_TOKEN`, or if the real API call fails). **Opt-in via `--x-commentary`** (off by default, regardless of whether a token is set) since real calls cost money — see [Run](#run).
 
 `nba_client.py` retries each `nba_api` call with backoff and falls back from the live feed to the historical stats feed when the live feed doesn't have a game anymore. All of this is decoupled from LangGraph — it's plain functions returning status dicts.
 
