@@ -46,15 +46,24 @@ flowchart LR
     Agent -- "response has<br/>tool_calls" --> Tools
     Agent -- "no tool_calls" --> Out(["final answer<br/>printed to console"])
 
-    Tools["<b>tools node</b><br/>ThreadPoolExecutor — one thread/call<br/><i>resolve_game · get_boxscore ·<br/>get_matchups · get_hustle_stats · ...</i>"]
+    subgraph Tools["tools node — ThreadPoolExecutor, one thread per call"]
+        direction TB
+        T1["resolve_game"]
+        T2["get_play_by_play"]
+        T3["get_boxscore"]
+        T4["get_matchups"]
+        T5["get_hustle_stats"]
+        T6["get_x_expert_insights"]
+    end
     Tools -- "ToolMessage(s)<br/>appended to messages" --> Agent
 
     classDef agentStyle fill:#fde68a,stroke:#b45309,stroke-width:2px,color:#1c1400
-    classDef toolsStyle fill:#93c5fd,stroke:#1d4ed8,stroke-width:2px,color:#0b1a3d
+    classDef toolStyle fill:#93c5fd,stroke:#1d4ed8,stroke-width:1.5px,color:#0b1a3d
     classDef endpointStyle fill:#d1fae5,stroke:#047857,stroke-width:1.5px,color:#022c1e
     class Agent agentStyle
-    class Tools toolsStyle
+    class T1,T2,T3,T4,T5,T6 toolStyle
     class In,Out endpointStyle
+    style Tools fill:#eff6ff,stroke:#1d4ed8,stroke-width:2px
 ```
 
 - **`agent` node** — Gemini (via `langchain-google-genai`) with tools bound. Given the running message history, decides whether to call a tool or produce a final answer.
