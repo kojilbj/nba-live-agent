@@ -108,7 +108,8 @@ def test_resolve_game_past_date_ok():
         }
         result = _resolve_game_raw("Lakers vs Celtics", "2026-01-15")
 
-    mock_sb.assert_called_once_with(game_date="2026-01-15")
+    mock_sb.assert_called_once_with(game_date="2026-01-15", timeout=nba_client.DEFAULT_TIMEOUT)
+
     assert result["status"] == "ok"
     assert result["game_id"] == "0022500001"
     assert result["game_status"] == GAME_STATUS_FINAL
