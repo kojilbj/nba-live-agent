@@ -9,6 +9,7 @@
 - `src/nba_live_agent/tools.py`: `@tool` functions bound to LangGraph.
 - `src/nba_live_agent/agent.py`: Hand-rolled agent/tools LangGraph loop.
 - `src/nba_live_agent/cli.py`: Interactive CLI session loop.
+- `src/nba_live_agent/logging_config.py`: `configure_logging()` — the CLI entry point's one place for wiring up log handlers; other modules just call `logging.getLogger(__name__)`.
 
 ## Development Rules
 - Keep `nba_client.py` decoupled from LangGraph dependencies.
