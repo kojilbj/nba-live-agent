@@ -1,6 +1,6 @@
 # nba-live-agent
 
-A CLI agent that reasons about a live NBA game using a hand-built LangGraph ReAct loop (Gemini + tool calling) over the `nba_api` live data feed. See [`docs/superpowers/specs/2026-08-05-nba-live-agent-design.md`](docs/superpowers/specs/2026-08-05-nba-live-agent-design.md) for the full design.
+A CLI agent that reasons about a live or historical NBA game using a hand-built LangGraph ReAct loop (Gemini + tool calling) over the `nba_api` data feeds, with optional expert commentary pulled from X. You name the game you're watching once at the start of a session; from then on you ask questions like "why isn't LeBron scoring this quarter?" and it pulls play-by-play/boxscore data and gives a causal answer, not a stat dump.
 
 ## Setup
 
@@ -8,42 +8,72 @@ A CLI agent that reasons about a live NBA game using a hand-built LangGraph ReAc
 python3.11 -m venv .venv   # 3.11/3.12 recommended over very new Python releases
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env       # fill in GOOGLE_API_KEY
+cp .env.example .env       # fill in GOOGLE_API_KEY (required); X_BEARER_TOKEN is optional
 ```
+
+Without `X_BEARER_TOKEN`, `get_x_expert_insights` returns simulated expert commentary instead of hitting the real X API.
 
 ## Run
 
 ```bash
-python run.py
+python run.py            # interactive session
+python run.py --verbose  # also print DEBUG-level logs to the console
 ```
 
 ## Test
 
 ```bash
 pytest
+flake8
 ```
+
+## How it works
+
+Two-node LangGraph loop:
+
+- **`agent` node** — Gemini (via `langchain-google-genai`) with tools bound. Given the running message history, decides whether to call a tool or produce a final answer.
+- **`tools` node** — executes whichever tool(s) the `agent` node requested, in parallel (via a thread pool) when the model requests more than one.
+
+At session start you name the game (e.g. "Lakers vs Celtics", or a specific date for a past game); `resolve_game` resolves this once and the resulting `game_id` is held as context for every subsequent question in the session — the model doesn't re-resolve the game per question.
+
+### Tools
+
+- `resolve_game(query, date="today")` — free text → `game_id` + both team names. Returns a structured "not found" / "ambiguous" result (with candidates to pick from) rather than guessing.
+- `get_play_by_play(game_id, period=None)` — chronological events, optionally scoped to one period.
+- `get_boxscore(game_id)` — current live stats snapshot for every player.
+- `get_matchups(game_id, player_name)` — per-defender breakdown of who guarded a given player.
+- `get_hustle_stats(game_id)` — screen assists, deflections, charges drawn, box outs, contested shots, loose balls recovered.
+- `get_x_expert_insights(query)` — qualitative tactical commentary from a curated list of NBA analysts on X, for context raw stats don't explain (falls back to simulated posts without an `X_BEARER_TOKEN`, or if the real API call fails).
+
+`nba_client.py` retries each `nba_api` call with backoff and falls back from the live feed to the historical stats feed when the live feed doesn't have a game anymore. All of this is decoupled from LangGraph — it's plain functions returning status dicts.
+
+### Data source
+
+[`nba_api`](https://github.com/swar/nba_api) — free, open-source wrapper around NBA.com's data feeds. It's unofficial and technically against NBA.com's terms of use, which is common for projects like this but worth being upfront about.
+
+## Logging
+
+By default the CLI prints only its own status/answer output; console logging stays at `WARNING`. Pass `--verbose`/`-v` to also print `DEBUG`-level logs (tool calls, retries, fallbacks) to the console. A `nba_live_agent.log` file (gitignored) always captures full `DEBUG` detail regardless of verbosity, for after-the-fact troubleshooting. See `src/nba_live_agent/logging_config.py`.
+
+**Known quirk:** `stats.nba.com` sits behind Akamai, which can silently "tarpit" requests — the TCP connection succeeds instantly but no HTTP response ever arrives — instead of returning a fast error. This surfaces as a `ReadTimeout` after retries are exhausted; it's an external rate-limiting/anti-scraping behavior, not a bug in this code.
 
 ## Project layout
 
 - `src/nba_live_agent/nba_client.py` — plain wrapper functions around `nba_api`
+- `src/nba_live_agent/x_client.py` — X (Twitter) expert-commentary client, with mock fallback
 - `src/nba_live_agent/models.py` — Pydantic schemas (`GameResolution`, `PlayEvent`, etc.)
 - `src/nba_live_agent/tools.py` — LangGraph-bindable `@tool` functions
 - `src/nba_live_agent/agent.py` — the hand-rolled agent/tools LangGraph loop
 - `src/nba_live_agent/cli.py` — interactive session loop
-- `tests/test_tools_errors.py` — offline unit tests for error-handling paths
+- `src/nba_live_agent/logging_config.py` — logging setup (`--verbose`, log file)
+- `tests/` — unit tests: mocked `nba_api`/X calls, error-handling and fallback paths, log-record assertions
 
-## Manual smoke test (do this on your own machine, during/after a live game)
+## Manual smoke test
 
-Development happened in a sandboxed environment whose network egress is blocked by NBA.com's CDN (Akamai returns 403 for the live `data.nba.com` endpoints, and `stats.nba.com` — used by `resolve_game` for non-today dates — just times out; general internet access works fine, so this is a network policy on NBA's end, not a code bug). That means none of `scoreboard`/`playbyplay`/`boxscore`/`scoreboardv2` were ever exercised against real data — only against the exact response schemas pulled from `nba_api`'s own source, and offline logic (team-name matching, error branching) was tested with mocks. Before trusting this for real:
+Automated tests mock every external call, so they don't catch a live API field renaming or an actual network-behavior change. Before trusting this against a real game:
 
-1. `python run.py`, describe a real in-progress or recent game (e.g. "Lakers vs Celtics"), confirm it resolves to the right teams. If there's no live game right now (e.g. off-season), describe a specific past game instead (e.g. "Lakers vs Celtics from January 15" or "yesterday's Warriors game") — `resolve_game` now takes a `YYYY-MM-DD` date, and the agent should convert relative phrasing to a concrete date on its own.
-2. Ask the design doc's example queries in the same session:
-   - "Why isn't LeBron scoring this quarter?"
-   - "How has Steph Curry been shooting in the second half?"
-   - "What's LeBron's shooting line for the game so far?"
-   - "Has Player X been on the bench a lot this period?"
-3. Confirm a second question doesn't re-trigger `resolve_game` (the session should hold the game_id).
+1. `python run.py`, describe a real in-progress or recent game (e.g. "Lakers vs Celtics"). If nothing's live right now, describe a specific past game instead (e.g. "Lakers vs Celtics from January 15" or "yesterday's Warriors game") — the agent should convert relative phrasing to a concrete date on its own.
+2. Ask a few of: "Why isn't LeBron scoring this quarter?", "How has Steph Curry been shooting in the second half?", "What's LeBron's shooting line for the game so far?", "Has Player X been on the bench a lot this period?"
+3. Confirm a second question doesn't re-trigger `resolve_game` (the session should hold the `game_id`).
 4. Force each error path once: a nonsense team name, a period beyond what's been played, a made-up player name.
-5. Watch specifically for "second half" style questions — `get_play_by_play`'s `period` param is a single int, so "second half" isn't a single value it accepts natively; see how the agent handles this (multiple tool calls vs. asking for clarification) and treat any awkwardness there as a known gap, not a bug to silently patch.
-
-If any live field name turns out to differ from what's in `nba_client.py` (print the raw dict from a real response to check), that's the one place likely to need adjustment — everything else in the pipeline is decoupled from `nba_api`'s exact JSON shape.
+5. If a live field name turns out to differ from what's in `nba_client.py`, run with `--verbose` (or check `nba_live_agent.log`) to see the raw response in the traceback.
