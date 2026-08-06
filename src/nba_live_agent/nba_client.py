@@ -4,6 +4,7 @@ gameStatus convention (per nba_api's live scoreboard/boxscore payloads):
 1 = not started, 2 = in progress, 3 = final.
 """
 
+import time
 from datetime import datetime
 
 from nba_api.live.nba.endpoints import boxscore, playbyplay, scoreboard
@@ -16,11 +17,45 @@ from nba_api.stats.endpoints import (
 )
 from nba_api.stats.static import teams
 
+try:
+    from nba_api.stats.library.http import STATS_HEADERS
+
+    STATS_HEADERS.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        ),
+        "Referer": "https://www.nba.com/",
+        "Accept-Language": "en-US,en;q=0.9",
+        "x-nba-stats-origin": "stats",
+        "x-nba-stats-token": "true",
+    })
+except Exception:
+    pass
+
+
 GAME_STATUS_NOT_STARTED = 1
 GAME_STATUS_LIVE = 2
 GAME_STATUS_FINAL = 3
 
+_API_CACHE: dict[str, tuple[float, dict]] = {}
+CACHE_TTL = 30.0
 DEFAULT_TIMEOUT = 5
+
+
+def _with_retry(func, retries: int = 3, initial_delay: float = 0.5, backoff_factor: float = 1.5):
+    """Retries a callable up to `retries` times on Exception."""
+    last_exc = None
+    delay = initial_delay
+    for attempt in range(retries):
+        try:
+            return func()
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries - 1:
+                time.sleep(delay)
+                delay *= backoff_factor
+    raise last_exc
 
 
 def _normalize(text: str) -> str:
@@ -80,7 +115,7 @@ def _games_for_today_raw() -> dict:
     _resolve_game_raw's return value.
     """
     try:
-        sb = scoreboard.ScoreBoard(timeout=DEFAULT_TIMEOUT)
+        sb = _with_retry(lambda: scoreboard.ScoreBoard(timeout=DEFAULT_TIMEOUT))
         games = sb.games.get_dict()
     except Exception as e:
         return {
@@ -103,7 +138,7 @@ def _games_for_date_raw(date: str) -> dict:
         # 2025-10-22..2025-12-25 games; we only read GameHeader (team ids +
         # status), which isn't affected, and V2's normalized dict is far
         # simpler to work with than V3's headers/rows tables.
-        sb = scoreboardv2.ScoreboardV2(game_date=date, timeout=DEFAULT_TIMEOUT)
+        sb = _with_retry(lambda: scoreboardv2.ScoreboardV2(game_date=date, timeout=DEFAULT_TIMEOUT))
         game_headers = sb.get_normalized_dict()["GameHeader"]
     except Exception as e:
         return {
@@ -216,7 +251,7 @@ def _resolve_game_raw(query: str, date: str = "today") -> dict:
 
 
 def _game_status(game_id: str) -> int:
-    box = boxscore.BoxScore(game_id, timeout=DEFAULT_TIMEOUT)
+    box = _with_retry(lambda: boxscore.BoxScore(game_id, timeout=DEFAULT_TIMEOUT))
     return box.game.get_dict()["gameStatus"]
 
 
@@ -256,7 +291,7 @@ def _get_play_by_play_via_stats_raw(game_id: str, period: int | None) -> dict:
     a game that's live right now, which the live feed would.
     """
     try:
-        pbp = playbyplayv3.PlayByPlayV3(game_id=game_id, timeout=DEFAULT_TIMEOUT)
+        pbp = _with_retry(lambda: playbyplayv3.PlayByPlayV3(game_id=game_id, timeout=DEFAULT_TIMEOUT))
         actions = _rows_as_dicts(pbp.play_by_play)
     except Exception as e:
         return {
@@ -293,7 +328,7 @@ def _get_play_by_play_raw(game_id: str, period: int | None = None) -> dict:
                 "message": "The game hasn't tipped off yet.",
             }
 
-        pbp = playbyplay.PlayByPlay(game_id, timeout=DEFAULT_TIMEOUT)
+        pbp = _with_retry(lambda: playbyplay.PlayByPlay(game_id, timeout=DEFAULT_TIMEOUT))
         actions = pbp.actions.get_dict()
     except Exception:
         return _get_play_by_play_via_stats_raw(game_id, period)
@@ -340,7 +375,9 @@ def _get_boxscore_via_stats_raw(game_id: str) -> dict:
     from there and partition players by teamId.
     """
     try:
-        box = boxscoretraditionalv3.BoxScoreTraditionalV3(game_id=game_id, timeout=DEFAULT_TIMEOUT)
+        box = _with_retry(
+            lambda: boxscoretraditionalv3.BoxScoreTraditionalV3(game_id=game_id, timeout=DEFAULT_TIMEOUT)
+        )
         team_rows = _rows_as_dicts(box.team_stats)
         player_rows = _rows_as_dicts(box.player_stats)
     except Exception as e:
@@ -372,7 +409,7 @@ def _get_boxscore_raw(game_id: str) -> dict:
     feed doesn't have this game anymore (see _get_play_by_play_raw for why).
     """
     try:
-        box = boxscore.BoxScore(game_id, timeout=DEFAULT_TIMEOUT)
+        box = _with_retry(lambda: boxscore.BoxScore(game_id, timeout=DEFAULT_TIMEOUT))
         game = box.game.get_dict()
     except Exception:
         return _get_boxscore_via_stats_raw(game_id)
@@ -425,7 +462,9 @@ def _get_hustle_stats_raw(game_id: str) -> dict:
     issue #16). stats.nba.com only, no live-feed equivalent to try first.
     """
     try:
-        hustle = boxscorehustlev2.BoxScoreHustleV2(game_id=game_id, timeout=DEFAULT_TIMEOUT)
+        hustle = _with_retry(
+            lambda: boxscorehustlev2.BoxScoreHustleV2(game_id=game_id, timeout=DEFAULT_TIMEOUT)
+        )
         team_rows = _rows_as_dicts(hustle.team_stats)
         player_rows = _rows_as_dicts(hustle.player_stats)
     except Exception as e:
@@ -461,7 +500,9 @@ def _get_matchups_raw(game_id: str, player_name: str) -> dict:
     stats.nba.com, there's no live-feed equivalent to try first.
     """
     try:
-        matchups = boxscorematchupsv3.BoxScoreMatchupsV3(game_id=game_id, timeout=DEFAULT_TIMEOUT)
+        matchups = _with_retry(
+            lambda: boxscorematchupsv3.BoxScoreMatchupsV3(game_id=game_id, timeout=DEFAULT_TIMEOUT)
+        )
         rows = _rows_as_dicts(matchups.player_stats)
     except Exception as e:
         return {
