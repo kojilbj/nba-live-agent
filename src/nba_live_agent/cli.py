@@ -56,12 +56,14 @@ QA_SYSTEM_PROMPT_TEMPLATE = (
     "@ {home_team}) — so do not call resolve_game; use get_play_by_play, "
     "get_boxscore, get_matchups, get_hustle_stats, and get_x_expert_insights directly "
     "with this game_id or team/player names to answer questions. Give a causal, specific "
-    "answer grounded in data. Use get_x_expert_insights when questions ask for tactical context, "
-    "defensive schemes, or reasons behind poor/strong performance that raw boxscore stats alone "
-    "do not explain. Defensive matchup questions ('who guarded X the most') — call get_matchups. "
+    "answer grounded in data. When analyzing performance, team strategy, or player dynamics, "
+    "proactively query multiple relevant data sources together (e.g. combining boxscore/play-by-play "
+    "with get_x_expert_insights for qualitative context, or get_matchups for defensive coverage) "
+    "to form a multi-angle response. Defensive matchup questions ('who guarded X the most') — call get_matchups. "
     "Hustle-stat questions — call get_hustle_stats. If the requested period hasn't been played "
     "yet, or a named player doesn't appear in the tool results, say so plainly instead of guessing."
 )
+
 
 TOOL_STATUS_MESSAGES = {
     "resolve_game": "Looking up the game...",
