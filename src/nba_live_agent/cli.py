@@ -217,7 +217,7 @@ def run() -> None:
     resolve_graph = build_live_graph(tools=[resolve_game])
     qa_graph = build_live_graph(tools=_build_qa_tools(args.x_commentary))
 
-    print("Which game are you watching? (e.g. 'Lakers vs Celtics', or 'Lakers Celtics from Jan 15')")
+    print("Enter the team name(s) for the game you're watching (e.g. 'Lakers vs Celtics', or 'Lakers Celtics from Jan 15')")
     resolve_prompt = RESOLVE_SYSTEM_PROMPT_TEMPLATE.format(today=today)
     messages = [SystemMessage(resolve_prompt)]
 
