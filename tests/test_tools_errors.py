@@ -1,4 +1,5 @@
 import logging
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 from nba_live_agent import nba_client
@@ -89,6 +90,182 @@ def test_resolve_game_no_games_today():
 def test_resolve_game_unsupported_date():
     result = _resolve_game_raw("Lakers", "January 1st")
     assert result["status"] == "unsupported_date"
+
+
+def test_games_for_window_raw_tags_games_with_date_and_merges_days():
+    center = date(2026, 1, 16)
+    today_games = [
+        {
+            "gameId": "G16",
+            "homeTeam": _fake_team(1610612747, "Lakers", "LAL"),
+            "awayTeam": _fake_team(1610612738, "Celtics", "BOS"),
+            "gameStatus": GAME_STATUS_LIVE,
+        }
+    ]
+
+    def fake_for_date(day_str):
+        if day_str == "2026-01-14":
+            return {
+                "status": "ok",
+                "games": [
+                    {
+                        "gameId": "G14",
+                        "homeTeam": _fake_team(1610612744, "Warriors", "GSW"),
+                        "awayTeam": _fake_team(1610612746, "Clippers", "LAC"),
+                        "gameStatus": GAME_STATUS_FINAL,
+                    }
+                ],
+            }
+        return {"status": "ok", "games": []}
+
+    with (
+        patch.object(nba_client, "_games_for_today_raw", return_value={"status": "ok", "games": today_games}),
+        patch.object(nba_client, "_games_for_date_raw", side_effect=fake_for_date),
+    ):
+        result = nba_client._games_for_window_raw(center, radius_days=2)
+
+    assert result["status"] == "ok"
+    by_id = {g["gameId"]: g["gameDate"] for g in result["games"]}
+    assert by_id["G16"] == "2026-01-16"
+    assert by_id["G14"] == "2026-01-14"
+
+
+def test_games_for_window_raw_skips_failed_day_and_continues():
+    center = date(2026, 1, 16)
+
+    def fake_for_date(day_str):
+        if day_str == "2026-01-14":
+            return {"status": "api_error", "message": "boom"}
+        return {"status": "ok", "games": []}
+
+    with (
+        patch.object(nba_client, "_games_for_today_raw", return_value={"status": "ok", "games": []}),
+        patch.object(nba_client, "_games_for_date_raw", side_effect=fake_for_date),
+    ):
+        result = nba_client._games_for_window_raw(center, radius_days=2)
+
+    # One stats-feed day failed (and the rest of the stats-feed days get
+    # short-circuited, see the dedicated test below), but today's live feed
+    # is unaffected, so the window as a whole still succeeds.
+    assert result["status"] == "ok"
+    assert result["games"] == []
+
+
+def test_games_for_window_raw_stops_retrying_stats_feed_after_first_failure():
+    """Once one stats-feed day fails, the remaining stats-feed days in the
+    window should be skipped outright rather than each independently
+    retrying a feed that's very likely down for all of them (e.g. the
+    Akamai tarpit quirk) - only the live feed (today) keeps being tried.
+    """
+    center = date(2026, 1, 16)
+    calls = []
+
+    def fake_for_date(day_str):
+        calls.append(day_str)
+        return {"status": "api_error", "message": "timeout"}
+
+    with (
+        patch.object(nba_client, "_games_for_today_raw", return_value={"status": "ok", "games": []}),
+        patch.object(nba_client, "_games_for_date_raw", side_effect=fake_for_date),
+    ):
+        result = nba_client._games_for_window_raw(center, radius_days=2)
+
+    # Only the first stats-feed day (offset -2, the first one visited)
+    # should actually be attempted; 2026-01-15/-17/-18 must never be called.
+    assert calls == ["2026-01-14"]
+    assert result["status"] == "ok"  # today's live feed still succeeded
+
+
+def test_games_for_window_raw_all_days_fail_is_api_error():
+    with (
+        patch.object(nba_client, "_games_for_today_raw", return_value={"status": "api_error", "message": "down"}),
+        patch.object(nba_client, "_games_for_date_raw", return_value={"status": "api_error", "message": "down"}),
+    ):
+        result = nba_client._games_for_window_raw(date(2026, 1, 16), radius_days=2)
+
+    assert result["status"] == "api_error"
+
+
+def test_match_games_ok_includes_game_date():
+    games = [
+        {
+            "gameId": "G16",
+            "homeTeam": _fake_team(1610612747, "Lakers", "LAL"),
+            "awayTeam": _fake_team(1610612738, "Celtics", "BOS"),
+            "gameStatus": GAME_STATUS_LIVE,
+            "gameDate": "2026-01-16",
+        }
+    ]
+    result = nba_client._match_games(games, "Lakers", "the surrounding few days", include_date_in_label=True)
+    assert result["status"] == "ok"
+    assert result["game_date"] == "2026-01-16"
+
+
+def test_match_games_ambiguous_across_dates_includes_date_in_candidates():
+    games = [
+        {
+            "gameId": "G14",
+            "homeTeam": _fake_team(1610612747, "Lakers", "LAL"),
+            "awayTeam": _fake_team(1610612738, "Celtics", "BOS"),
+            "gameStatus": GAME_STATUS_FINAL,
+            "gameDate": "2026-01-14",
+        },
+        {
+            "gameId": "G18",
+            "homeTeam": _fake_team(1610612747, "Lakers", "LAL"),
+            "awayTeam": _fake_team(1610612744, "Warriors", "GSW"),
+            "gameStatus": GAME_STATUS_NOT_STARTED,
+            "gameDate": "2026-01-18",
+        },
+    ]
+    result = nba_client._match_games(games, "Lakers", "the surrounding few days", include_date_in_label=True)
+    assert result["status"] == "ambiguous"
+    assert any("2026-01-14" in c for c in result["candidates"])
+    assert any("2026-01-18" in c for c in result["candidates"])
+
+
+def test_match_games_not_found_lists_dated_available_games():
+    games = [
+        {
+            "gameId": "G16",
+            "homeTeam": _fake_team(1610612746, "Clippers", "LAC"),
+            "awayTeam": _fake_team(1610612744, "Warriors", "GSW"),
+            "gameStatus": GAME_STATUS_LIVE,
+            "gameDate": "2026-01-16",
+        }
+    ]
+    result = nba_client._match_games(games, "Nonsense", "the surrounding few days", include_date_in_label=True)
+    assert result["status"] == "not_found"
+    assert result["available_games"] == ["Warriors @ Clippers (2026-01-16)"]
+
+
+def test_resolve_game_default_date_none_uses_window():
+    fake_games = [
+        {
+            "gameId": "G16",
+            "homeTeam": _fake_team(1610612747, "Lakers", "LAL"),
+            "awayTeam": _fake_team(1610612738, "Celtics", "BOS"),
+            "gameStatus": GAME_STATUS_LIVE,
+            "gameDate": "2026-01-16",
+        }
+    ]
+    with patch.object(
+        nba_client, "_games_for_window_raw", return_value={"status": "ok", "games": fake_games}
+    ) as mock_window:
+        result = _resolve_game_raw("Lakers")
+
+    mock_window.assert_called_once()
+    assert result["status"] == "ok"
+    assert result["game_date"] == "2026-01-16"
+
+
+def test_resolve_game_default_date_propagates_window_api_error():
+    with patch.object(
+        nba_client, "_games_for_window_raw", return_value={"status": "api_error", "message": "down"}
+    ):
+        result = _resolve_game_raw("Lakers")
+
+    assert result["status"] == "api_error"
 
 
 def _fake_game_header(game_id, home_id, away_id, status):
