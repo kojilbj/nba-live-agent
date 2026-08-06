@@ -1,9 +1,12 @@
 import json
+import logging
 import os
 import time
 import urllib.request
 
 from nba_live_agent.models import XInsightsResult, XPost
+
+logger = logging.getLogger(__name__)
 
 EXPERT_ACCOUNTS = [
     {"handle": "stevejones20", "name": "Steve Jones Jr."},
@@ -159,7 +162,7 @@ def get_x_insights(query: str, use_cache: bool = True) -> XInsightsResult:
             _CACHE[cache_key] = (now, result)
             return result
     except Exception as e:
-        # On error, fallback to mock with error message
+        logger.warning("X API request failed, falling back to mock data: %s", e)
         mock_posts = _generate_mock_posts(clean_query)
         result = XInsightsResult(
             status="ok",

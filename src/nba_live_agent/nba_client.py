@@ -4,6 +4,7 @@ gameStatus convention (per nba_api's live scoreboard/boxscore payloads):
 1 = not started, 2 = in progress, 3 = final.
 """
 
+import logging
 import time
 from datetime import datetime
 
@@ -16,6 +17,8 @@ from nba_api.stats.endpoints import (
     scoreboardv2,
 )
 from nba_api.stats.static import teams
+
+logger = logging.getLogger(__name__)
 
 try:
     from nba_api.stats.library.http import STATS_HEADERS
@@ -30,8 +33,8 @@ try:
         "x-nba-stats-origin": "stats",
         "x-nba-stats-token": "true",
     })
-except Exception:
-    pass
+except Exception as exc:
+    logger.warning("Failed to set custom STATS_HEADERS: %s", exc)
 
 
 GAME_STATUS_NOT_STARTED = 1
@@ -52,6 +55,7 @@ def _with_retry(func, retries: int = 3, initial_delay: float = 0.5, backoff_fact
             return func()
         except Exception as exc:
             last_exc = exc
+            logger.warning("Attempt %d/%d failed: %s", attempt + 1, retries, exc)
             if attempt < retries - 1:
                 time.sleep(delay)
                 delay *= backoff_factor
@@ -118,6 +122,7 @@ def _games_for_today_raw() -> dict:
         sb = _with_retry(lambda: scoreboard.ScoreBoard(timeout=DEFAULT_TIMEOUT))
         games = sb.games.get_dict()
     except Exception as e:
+        logger.exception("Failed to fetch today's live scoreboard")
         return {
             "status": "api_error",
             "message": f"Couldn't reach NBA's live data feed: {e}",
@@ -141,6 +146,7 @@ def _games_for_date_raw(date: str) -> dict:
         sb = _with_retry(lambda: scoreboardv2.ScoreboardV2(game_date=date, timeout=DEFAULT_TIMEOUT))
         game_headers = sb.get_normalized_dict()["GameHeader"]
     except Exception as e:
+        logger.exception("Failed to fetch scoreboard for date=%s", date)
         return {
             "status": "api_error",
             "message": f"Couldn't reach NBA's stats data feed: {e}",
@@ -294,6 +300,7 @@ def _get_play_by_play_via_stats_raw(game_id: str, period: int | None) -> dict:
         pbp = _with_retry(lambda: playbyplayv3.PlayByPlayV3(game_id=game_id, timeout=DEFAULT_TIMEOUT))
         actions = _rows_as_dicts(pbp.play_by_play)
     except Exception as e:
+        logger.exception("Failed to fetch stats play-by-play for game_id=%s", game_id)
         return {
             "status": "api_error",
             "events": [],
@@ -330,7 +337,10 @@ def _get_play_by_play_raw(game_id: str, period: int | None = None) -> dict:
 
         pbp = _with_retry(lambda: playbyplay.PlayByPlay(game_id, timeout=DEFAULT_TIMEOUT))
         actions = pbp.actions.get_dict()
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Live play-by-play unavailable for game_id=%s, falling back to stats feed: %s", game_id, exc
+        )
         return _get_play_by_play_via_stats_raw(game_id, period)
 
     return _events_from_actions(actions, period)
@@ -381,6 +391,7 @@ def _get_boxscore_via_stats_raw(game_id: str) -> dict:
         team_rows = _rows_as_dicts(box.team_stats)
         player_rows = _rows_as_dicts(box.player_stats)
     except Exception as e:
+        logger.exception("Failed to fetch stats boxscore for game_id=%s", game_id)
         return {
             "status": "api_error",
             "message": f"Couldn't reach NBA's stats data feed either: {e}",
@@ -411,7 +422,10 @@ def _get_boxscore_raw(game_id: str) -> dict:
     try:
         box = _with_retry(lambda: boxscore.BoxScore(game_id, timeout=DEFAULT_TIMEOUT))
         game = box.game.get_dict()
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Live boxscore unavailable for game_id=%s, falling back to stats feed: %s", game_id, exc
+        )
         return _get_boxscore_via_stats_raw(game_id)
 
     if game["gameStatus"] == GAME_STATUS_NOT_STARTED:
@@ -468,6 +482,7 @@ def _get_hustle_stats_raw(game_id: str) -> dict:
         team_rows = _rows_as_dicts(hustle.team_stats)
         player_rows = _rows_as_dicts(hustle.player_stats)
     except Exception as e:
+        logger.exception("Failed to fetch hustle stats for game_id=%s", game_id)
         return {
             "status": "api_error",
             "message": f"Couldn't reach NBA's stats data feed: {e}",
@@ -505,6 +520,7 @@ def _get_matchups_raw(game_id: str, player_name: str) -> dict:
         )
         rows = _rows_as_dicts(matchups.player_stats)
     except Exception as e:
+        logger.exception("Failed to fetch matchups for game_id=%s", game_id)
         return {
             "status": "api_error",
             "matchups": [],
