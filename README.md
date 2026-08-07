@@ -38,6 +38,25 @@ flake8
 
 Two-node LangGraph loop:
 
+```mermaid
+flowchart LR
+    In(["messages<br/>System + Human"]) --> Agent
+
+    Agent["<b>agent node</b><br/>model_with_tools.invoke(messages)<br/><i>gemini-3.5-flash-lite</i>"]
+    Agent -- "response has<br/>tool_calls" --> Tools
+    Agent -- "no tool_calls" --> Out(["final answer<br/>printed to console"])
+
+    Tools["<b>tools node</b><br/>ThreadPoolExecutor — one thread/call<br/><i>resolve_game · get_boxscore ·<br/>get_matchups · get_hustle_stats · ...</i>"]
+    Tools -- "ToolMessage(s)<br/>appended to messages" --> Agent
+
+    classDef agentStyle fill:#fde68a,stroke:#b45309,stroke-width:2px,color:#1c1400
+    classDef toolsStyle fill:#93c5fd,stroke:#1d4ed8,stroke-width:2px,color:#0b1a3d
+    classDef endpointStyle fill:#d1fae5,stroke:#047857,stroke-width:1.5px,color:#022c1e
+    class Agent agentStyle
+    class Tools toolsStyle
+    class In,Out endpointStyle
+```
+
 - **`agent` node** — Gemini (via `langchain-google-genai`) with tools bound. Given the running message history, decides whether to call a tool or produce a final answer.
 - **`tools` node** — executes whichever tool(s) the `agent` node requested, in parallel (via a thread pool) when the model requests more than one.
 
