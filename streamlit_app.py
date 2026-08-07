@@ -52,28 +52,34 @@ if not st.session_state.resolved:
 
     description = st.chat_input("Describe the game...")
     if description:
+        with st.chat_message("user"):
+            st.write(description)
         st.session_state.resolve_chat_log.append({"role": "user", "content": description})
-        try:
-            resp = requests.post(
-                f"{API_BASE_URL}/resolve",
-                json={"messages": st.session_state.resolve_messages, "description": description},
-                timeout=REQUEST_TIMEOUT,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except requests.RequestException as e:
-            st.session_state.resolve_chat_log.append(
-                {"role": "assistant", "content": f"Couldn't reach the backend: {e}"}
-            )
-        else:
-            st.session_state.resolve_messages = data["messages"]
-            st.session_state.resolve_chat_log.append({"role": "assistant", "content": data["reply"]})
-            st.session_state.total_tokens += data["tokens_used"]
-            if data["resolved"]:
-                st.session_state.resolved = True
-                st.session_state.game_id = data["game_id"]
-                st.session_state.away_team = data["away_team"]
-                st.session_state.home_team = data["home_team"]
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    resp = requests.post(
+                        f"{API_BASE_URL}/resolve",
+                        json={"messages": st.session_state.resolve_messages, "description": description},
+                        timeout=REQUEST_TIMEOUT,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                except requests.RequestException as e:
+                    reply = f"Couldn't reach the backend: {e}"
+                    st.write(reply)
+                    st.session_state.resolve_chat_log.append({"role": "assistant", "content": reply})
+                else:
+                    st.write(data["reply"])
+                    st.session_state.resolve_messages = data["messages"]
+                    st.session_state.resolve_chat_log.append({"role": "assistant", "content": data["reply"]})
+                    st.session_state.total_tokens += data["tokens_used"]
+                    if data["resolved"]:
+                        st.session_state.resolved = True
+                        st.session_state.game_id = data["game_id"]
+                        st.session_state.away_team = data["away_team"]
+                        st.session_state.home_team = data["home_team"]
         st.rerun()
 
 else:
@@ -86,24 +92,32 @@ else:
 
     question = st.chat_input("Ask a question...")
     if question:
+        with st.chat_message("user"):
+            st.write(question)
         st.session_state.qa_chat_log.append({"role": "user", "content": question})
-        try:
-            resp = requests.post(
-                f"{API_BASE_URL}/ask",
-                json={
-                    "game_id": st.session_state.game_id,
-                    "away_team": st.session_state.away_team,
-                    "home_team": st.session_state.home_team,
-                    "question": question,
-                    "x_commentary": st.session_state.x_commentary,
-                },
-                timeout=REQUEST_TIMEOUT,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except requests.RequestException as e:
-            st.session_state.qa_chat_log.append({"role": "assistant", "content": f"Couldn't reach the backend: {e}"})
-        else:
-            st.session_state.qa_chat_log.append({"role": "assistant", "content": data["answer"]})
-            st.session_state.total_tokens += data["tokens_used"]
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    resp = requests.post(
+                        f"{API_BASE_URL}/ask",
+                        json={
+                            "game_id": st.session_state.game_id,
+                            "away_team": st.session_state.away_team,
+                            "home_team": st.session_state.home_team,
+                            "question": question,
+                            "x_commentary": st.session_state.x_commentary,
+                        },
+                        timeout=REQUEST_TIMEOUT,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                except requests.RequestException as e:
+                    reply = f"Couldn't reach the backend: {e}"
+                    st.write(reply)
+                    st.session_state.qa_chat_log.append({"role": "assistant", "content": reply})
+                else:
+                    st.write(data["answer"])
+                    st.session_state.qa_chat_log.append({"role": "assistant", "content": data["answer"]})
+                    st.session_state.total_tokens += data["tokens_used"]
         st.rerun()
