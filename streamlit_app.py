@@ -60,11 +60,23 @@ def _init_state() -> None:
 
 def _stream_turn(url: str, payload: dict) -> dict:
     """POSTs to a streaming (NDJSON) endpoint inside a live st.status() box
-    — spinner while running, label updated as each tool_call event arrives
-    — and returns whichever event ends the stream: {"type": "final", ...}
-    or {"type": "error", ...}.
+    — spinner while running, label updated as each tool_call event arrives.
+    Each step also gets written into the box's body (visible when expanded)
+    so it's a log of what happened this turn, not just an empty shell.
+    Returns whichever event ends the stream: {"type": "final", ...} or
+    {"type": "error", ...}.
     """
-    with st.status("Thinking...", state="running") as status_box:
+    # expanded defaults to False (collapsed) — without it, the tool-call/
+    # log content this function writes into the box is invisible unless
+    # the user manually clicks to expand it. Every .update() call below
+    # also has to repeat expanded=True: despite what its docstring says
+    # ("If None, the expanded state is not changed"), StatusContainer.
+    # update() actually clears the field back to collapsed whenever
+    # expanded isn't passed explicitly (verified by reading its source —
+    # the else branch calls proto ClearField("expanded") instead of
+    # leaving it alone), so the box was silently collapsing itself on the
+    # very first label update.
+    with st.status("Thinking...", state="running", expanded=True) as status_box:
         try:
             with requests.post(url, json=payload, stream=True, timeout=REQUEST_TIMEOUT) as resp:
                 resp.raise_for_status()
@@ -74,16 +86,22 @@ def _stream_turn(url: str, payload: dict) -> dict:
                     event = json.loads(line)
                     if event["type"] == "tool_call":
                         label = TOOL_STATUS_MESSAGES.get(event["name"], f"Calling {event['name']}...")
-                        status_box.update(label=label)
+                        status_box.update(label=label, expanded=True)
+                        st.write(label)
+                    elif event["type"] == "log":
+                        st.code(event["line"], language=None)
                     elif event["type"] == "final":
-                        status_box.update(label="Done", state="complete")
+                        status_box.update(label="Done", state="complete", expanded=True)
                         return event
                     else:  # "error"
-                        status_box.update(label="Error", state="error")
+                        status_box.update(label="Error", state="error", expanded=True)
+                        st.write(event["detail"])
                         return event
         except requests.RequestException as e:
-            status_box.update(label="Error", state="error")
-            return {"type": "error", "detail": f"Couldn't reach the backend: {e}"}
+            detail = f"Couldn't reach the backend: {e}"
+            status_box.update(label="Error", state="error", expanded=True)
+            st.write(detail)
+            return {"type": "error", "detail": detail}
     return {"type": "error", "detail": "The backend closed the connection unexpectedly."}
 
 

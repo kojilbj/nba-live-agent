@@ -3,6 +3,7 @@ tools node executes whichever tool(s) were requested, then control returns
 to the agent node. This two-node loop *is* the "agentic loop."
 """
 
+import contextvars
 import logging
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -79,8 +80,25 @@ def build_graph(model_with_tools: Runnable[Sequence[BaseMessage], AIMessage], to
         if not tool_calls:
             return {"messages": []}
 
+        # concurrent.futures.ThreadPoolExecutor doesn't propagate
+        # contextvars into its worker threads on its own (unlike asyncio/
+        # anyio tasks). Snapshot the calling context's values and replay
+        # them via plain ContextVar.set() in each worker thread — not
+        # Context.run(), which raises "context already entered" if the
+        # same captured Context object is entered concurrently from
+        # multiple threads, exactly what parallel tool calls do here — so
+        # anything relying on a contextvar (e.g. api.py's per-request
+        # log-forwarding sink) still works when a tool's own code logs
+        # something.
+        context_values = list(contextvars.copy_context().items())
+
+        def _execute_tool_call_with_context(call):
+            for var, value in context_values:
+                var.set(value)
+            return _execute_tool_call(call)
+
         with ThreadPoolExecutor(max_workers=len(tool_calls)) as executor:
-            outputs = list(executor.map(_execute_tool_call, tool_calls))
+            outputs = list(executor.map(_execute_tool_call_with_context, tool_calls))
         return {"messages": outputs}
 
     def should_continue(state: AgentState) -> str:

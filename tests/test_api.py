@@ -1,4 +1,5 @@
 import json
+import logging
 
 import pytest
 from fastapi.testclient import TestClient
@@ -25,6 +26,16 @@ class _FakeGraph:
 class _RaisingGraph:
     def stream(self, input, stream_mode="updates"):
         raise RuntimeError("boom")
+
+
+class _WarningThenAnswerGraph:
+    """Emits a real logging.warning() call (as nba_client's retry logic
+    would) partway through, to verify the api's log-forwarding picks it up.
+    """
+
+    def stream(self, input, stream_mode="updates"):
+        logging.getLogger("nba_live_agent.nba_client").warning("Attempt 1/3 failed: simulated timeout")
+        yield _ai_update(content="ok, got it")
 
 
 def _ai_update(node="agent", **kwargs):
@@ -128,6 +139,27 @@ def test_resolve_resolved_path_populates_game_info(client):
     assert final["game_id"] == "G1"
     assert final["home_team"] == "Lakers"
     assert final["away_team"] == "Celtics"
+
+
+def test_resolve_forwards_backend_log_records(client):
+    """A real logging.warning() call made anywhere under the
+    "nba_live_agent" logger while a turn is in flight (e.g. nba_client's
+    retry warnings) should reach the client as a {"type": "log", ...}
+    event, not just the server's own console/log file.
+    """
+    client.app.state.resolve_graph = _WarningThenAnswerGraph()
+
+    resp = client.post("/resolve", json={"messages": [], "description": "Lakers"})
+
+    events = _events(resp)
+    log_events = [e for e in events if e["type"] == "log"]
+    assert len(log_events) == 1
+    assert "Attempt 1/3 failed: simulated timeout" in log_events[0]["line"]
+    assert "WARNING" in log_events[0]["line"]
+    assert "nba_live_agent.nba_client" in log_events[0]["line"]
+    # The log line is forwarded before the turn's final event, not after.
+    assert events.index(log_events[0]) < events.index(events[-1])
+    assert events[-1]["type"] == "final"
 
 
 def test_ask_routes_to_x_commentary_graph_when_enabled(client):

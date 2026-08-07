@@ -7,6 +7,7 @@ Fully stateless: every field a handler needs comes in the request body.
 per question" design (see session.py).
 """
 
+import contextvars
 import json
 import logging
 import os
@@ -34,11 +35,36 @@ from nba_live_agent.tools import resolve_game
 
 logger = logging.getLogger(__name__)
 
+# Per-request sink for anything logged under the "nba_live_agent" logger
+# (nba_client's retry warnings, etc.) while a /resolve or /ask turn is in
+# flight, so the frontend can show them alongside the answer instead of
+# only being visible in the server's own console/log file. A contextvar
+# rather than a plain module-level list: concurrent requests each set
+# their own sink, so their log records can't leak into each other's
+# streams. anyio's threadpool (which is what runs each sync generator
+# step) preserves context across the thread hop, so this works even
+# though the generator doesn't run on one fixed thread for its whole life.
+_current_log_sink: contextvars.ContextVar[list | None] = contextvars.ContextVar("_current_log_sink", default=None)
+
+
+class _ContextLogHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord) -> None:
+        sink = _current_log_sink.get()
+        if sink is not None:
+            sink.append(self.format(record))
+
+
+_log_handler = _ContextLogHandler(level=logging.WARNING)
+_log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s"))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_dotenv()
     configure_logging(verbose=os.environ.get("NBA_AGENT_VERBOSE") == "1")
+    # configure_logging() clears the "nba_live_agent" logger's handlers, so
+    # this has to be attached after it runs, not at module import time.
+    logging.getLogger("nba_live_agent").addHandler(_log_handler)
     # Two QA graph variants (with/without get_x_expert_insights) built once
     # at startup and reused across requests, mirroring how cli.run() builds
     # qa_graph once and reuses it across the CLI's while-loop.
@@ -139,8 +165,24 @@ def resolve(req: ResolveRequest, request: Request) -> StreamingResponse:
         # status code once headers are sent, so a failure — whenever it
         # happens — has to surface as an in-band {"type": "error"} event
         # instead of an HTTP error status.
+        log_sink: list[str] = []
+        turn_iter = run_turn_stream(request.app.state.resolve_graph, messages)
         try:
-            for event in run_turn_stream(request.app.state.resolve_graph, messages):
+            while True:
+                # Re-assert the sink immediately before every advance, not
+                # just once up front: a contextvar set once at the top of a
+                # sync generator streamed via StreamingResponse does NOT
+                # reliably survive across its own later yields — each can
+                # resume in a freshly copied context (verified empirically)
+                # — so tools_node's contextvars.copy_context() would see
+                # nothing set if we didn't redo this every time.
+                _current_log_sink.set(log_sink)
+                try:
+                    event = next(turn_iter)
+                except StopIteration:
+                    break
+                while log_sink:
+                    yield _ndjson({"type": "log", "line": log_sink.pop(0)})
                 if event["kind"] == "tool_call":
                     yield _ndjson({"type": "tool_call", "name": event["name"]})
                 else:
@@ -157,8 +199,12 @@ def resolve(req: ResolveRequest, request: Request) -> StreamingResponse:
                     )
                     yield _ndjson({"type": "final", **final.model_dump()})
         except Exception as e:
+            while log_sink:
+                yield _ndjson({"type": "log", "line": log_sink.pop(0)})
             logger.exception("Resolve turn failed")
             yield _ndjson({"type": "error", "detail": f"Something went wrong talking to the model: {e}"})
+        finally:
+            _current_log_sink.set(None)
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
@@ -177,15 +223,30 @@ def ask(req: AskRequest, request: Request) -> StreamingResponse:
     turn_messages = [SystemMessage(qa_prompt), HumanMessage(req.question)]
 
     def event_stream():
+        log_sink: list[str] = []
+        turn_iter = run_turn_stream(graph, turn_messages)
         try:
-            for event in run_turn_stream(graph, turn_messages):
+            while True:
+                # See /resolve's event_stream for why this is re-asserted
+                # every iteration instead of once up front.
+                _current_log_sink.set(log_sink)
+                try:
+                    event = next(turn_iter)
+                except StopIteration:
+                    break
+                while log_sink:
+                    yield _ndjson({"type": "log", "line": log_sink.pop(0)})
                 if event["kind"] == "tool_call":
                     yield _ndjson({"type": "tool_call", "name": event["name"]})
                 else:
                     final = AskResponse(answer=last_ai_message(event["messages"]).text, tokens_used=event["tokens"])
                     yield _ndjson({"type": "final", **final.model_dump()})
         except Exception as e:
+            while log_sink:
+                yield _ndjson({"type": "log", "line": log_sink.pop(0)})
             logger.exception("Ask turn failed")
             yield _ndjson({"type": "error", "detail": f"Something went wrong talking to the model: {e}"})
+        finally:
+            _current_log_sink.set(None)
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
