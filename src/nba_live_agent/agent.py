@@ -8,7 +8,8 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
@@ -42,7 +43,7 @@ class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
 
-def build_graph(model_with_tools, tools):
+def build_graph(model_with_tools: Runnable[Sequence[BaseMessage], AIMessage], tools: Sequence[BaseTool]):
     """Takes any chat model with .bind_tools(tools) already applied, so the
     loop wiring can be tested independently of which model/API is behind it.
 
