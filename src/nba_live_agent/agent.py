@@ -4,8 +4,9 @@ to the agent node. This two-node loop *is* the "agentic loop."
 """
 
 import logging
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import Annotated, Sequence, TypedDict
+from typing import Annotated, TypedDict
 
 from langchain_core.messages import BaseMessage, ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
