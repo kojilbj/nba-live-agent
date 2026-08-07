@@ -8,6 +8,7 @@ per question" design (see session.py).
 """
 
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import date
@@ -30,6 +31,8 @@ from nba_live_agent.session import (
     run_turn_stream,
 )
 from nba_live_agent.tools import resolve_game
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -154,6 +157,7 @@ def resolve(req: ResolveRequest, request: Request) -> StreamingResponse:
                     )
                     yield _ndjson({"type": "final", **final.model_dump()})
         except Exception as e:
+            logger.exception("Resolve turn failed")
             yield _ndjson({"type": "error", "detail": f"Something went wrong talking to the model: {e}"})
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
@@ -181,6 +185,7 @@ def ask(req: AskRequest, request: Request) -> StreamingResponse:
                     final = AskResponse(answer=last_ai_message(event["messages"]).text, tokens_used=event["tokens"])
                     yield _ndjson({"type": "final", **final.model_dump()})
         except Exception as e:
+            logger.exception("Ask turn failed")
             yield _ndjson({"type": "error", "detail": f"Something went wrong talking to the model: {e}"})
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")

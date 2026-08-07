@@ -26,7 +26,6 @@ TOOL_STATUS_MESSAGES = {
 }
 
 st.set_page_config(page_title="NBA Live Agent", page_icon="🏀", layout="centered")
-st.logo("🏀", size="medium")
 
 
 def _init_state() -> None:
@@ -35,6 +34,8 @@ def _init_state() -> None:
         "resolve_messages": [],  # wire-format history, round-tripped with /resolve verbatim
         "resolve_chat_log": [],  # display-only bubbles
         "qa_chat_log": [],  # display-only bubbles — never sent to the API
+        "resolve_pending": None,  # description awaiting a /resolve response, if any
+        "qa_pending": None,  # question awaiting an /ask response, if any
         "game_id": None,
         "away_team": None,
         "home_team": None,
@@ -45,25 +46,32 @@ def _init_state() -> None:
             st.session_state[key] = value
 
 
-def _stream_turn(url: str, payload: dict, status) -> dict:
-    """POSTs to a streaming (NDJSON) endpoint, updating `status` with a
-    tool-call-aware label as progress events arrive, and returns whichever
-    event ends the stream — {"type": "final", ...} or {"type": "error", ...}.
+def _stream_turn(url: str, payload: dict) -> dict:
+    """POSTs to a streaming (NDJSON) endpoint inside a live st.status() box
+    — spinner while running, label updated as each tool_call event arrives
+    — and returns whichever event ends the stream: {"type": "final", ...}
+    or {"type": "error", ...}.
     """
-    try:
-        with requests.post(url, json=payload, stream=True, timeout=REQUEST_TIMEOUT) as resp:
-            resp.raise_for_status()
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                event = json.loads(line)
-                if event["type"] == "tool_call":
-                    label = TOOL_STATUS_MESSAGES.get(event["name"], f"Calling {event['name']}...")
-                    status.markdown(f"_{label}_")
-                else:
-                    return event
-    except requests.RequestException as e:
-        return {"type": "error", "detail": f"Couldn't reach the backend: {e}"}
+    with st.status("Thinking...", state="running") as status_box:
+        try:
+            with requests.post(url, json=payload, stream=True, timeout=REQUEST_TIMEOUT) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    event = json.loads(line)
+                    if event["type"] == "tool_call":
+                        label = TOOL_STATUS_MESSAGES.get(event["name"], f"Calling {event['name']}...")
+                        status_box.update(label=label)
+                    elif event["type"] == "final":
+                        status_box.update(label="Done", state="complete")
+                        return event
+                    else:  # "error"
+                        status_box.update(label="Error", state="error")
+                        return event
+        except requests.RequestException as e:
+            status_box.update(label="Error", state="error")
+            return {"type": "error", "detail": f"Couldn't reach the backend: {e}"}
     return {"type": "error", "detail": "The backend closed the connection unexpectedly."}
 
 
@@ -85,21 +93,20 @@ if not st.session_state.resolved:
         with st.chat_message(entry["role"]):
             st.write(entry["content"])
 
-    description = st.chat_input("Describe the game...")
-    if description:
+    description = st.chat_input("Describe the game...", disabled=st.session_state.resolve_pending is not None)
+    if description and st.session_state.resolve_pending is None:
+        st.session_state.resolve_pending = description
         with st.chat_message("user"):
             st.write(description)
         st.session_state.resolve_chat_log.append({"role": "user", "content": description})
+        st.rerun()
 
+    if st.session_state.resolve_pending is not None:
         with st.chat_message("assistant"):
-            status = st.empty()
-            status.markdown("_Thinking..._")
             final = _stream_turn(
                 f"{API_BASE_URL}/resolve",
-                {"messages": st.session_state.resolve_messages, "description": description},
-                status,
+                {"messages": st.session_state.resolve_messages, "description": st.session_state.resolve_pending},
             )
-            status.empty()
             if final["type"] == "error":
                 st.write(final["detail"])
                 st.session_state.resolve_chat_log.append({"role": "assistant", "content": final["detail"]})
@@ -113,6 +120,7 @@ if not st.session_state.resolved:
                     st.session_state.game_id = final["game_id"]
                     st.session_state.away_team = final["away_team"]
                     st.session_state.home_team = final["home_team"]
+        st.session_state.resolve_pending = None
         st.rerun()
 
 else:
@@ -123,27 +131,26 @@ else:
         with st.chat_message(entry["role"]):
             st.write(entry["content"])
 
-    question = st.chat_input("Ask a question...")
-    if question:
+    question = st.chat_input("Ask a question...", disabled=st.session_state.qa_pending is not None)
+    if question and st.session_state.qa_pending is None:
+        st.session_state.qa_pending = question
         with st.chat_message("user"):
             st.write(question)
         st.session_state.qa_chat_log.append({"role": "user", "content": question})
+        st.rerun()
 
+    if st.session_state.qa_pending is not None:
         with st.chat_message("assistant"):
-            status = st.empty()
-            status.markdown("_Thinking..._")
             final = _stream_turn(
                 f"{API_BASE_URL}/ask",
                 {
                     "game_id": st.session_state.game_id,
                     "away_team": st.session_state.away_team,
                     "home_team": st.session_state.home_team,
-                    "question": question,
+                    "question": st.session_state.qa_pending,
                     "x_commentary": st.session_state.x_commentary,
                 },
-                status,
             )
-            status.empty()
             if final["type"] == "error":
                 st.write(final["detail"])
                 st.session_state.qa_chat_log.append({"role": "assistant", "content": final["detail"]})
@@ -151,4 +158,5 @@ else:
                 st.write(final["answer"])
                 st.session_state.qa_chat_log.append({"role": "assistant", "content": final["answer"]})
                 st.session_state.total_tokens += final["tokens_used"]
+        st.session_state.qa_pending = None
         st.rerun()
