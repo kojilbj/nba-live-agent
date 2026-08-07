@@ -79,23 +79,9 @@ def _rows_as_dicts(data_set) -> list[dict]:
     return [dict(zip(raw["headers"], row)) for row in raw["data"]]
 
 
-# Common informal names that don't derive from nba_api's official
-# full_name/city/nickname/abbreviation fields (e.g. "NYC" isn't a substring
-# of "New York" and isn't the Knicks' abbreviation "NYK"), so the substring
-# check below can't catch them on its own. Keyed by informal word -> the
-# team's official abbreviation.
-INFORMAL_TEAM_ALIASES = {
-    "nyc": "NYK",  # Nets are officially "Brooklyn", not "New York", so this isn't ambiguous
-    "philly": "PHI",
-    "sf": "GSW",
-    "nola": "NOP",
-}
-
-
 def _matching_teams(query: str) -> list[dict]:
     q = _normalize(query)
     q_words = set(q.split())
-    aliased_abbreviations = {INFORMAL_TEAM_ALIASES[w] for w in q_words if w in INFORMAL_TEAM_ALIASES}
     matches = []
     for team in teams.get_teams():
         identifiers = [
@@ -104,11 +90,7 @@ def _matching_teams(query: str) -> list[dict]:
             _normalize(team["city"]),
             _normalize(team["abbreviation"]),
         ]
-        if (
-            any(identifier in q for identifier in identifiers)
-            or team["abbreviation"].lower() in q_words
-            or team["abbreviation"] in aliased_abbreviations
-        ):
+        if any(identifier in q for identifier in identifiers) or team["abbreviation"].lower() in q_words:
             matches.append(team)
     return matches
 
