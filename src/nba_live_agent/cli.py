@@ -184,7 +184,7 @@ def _build_qa_prompt(*, today: str, game_id: str, away_team: str, home_team: str
     )
 
 
-def run() -> None:
+def main() -> None:
     parser = argparse.ArgumentParser(description="Interactive NBA live-game analyst CLI.")
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Print DEBUG-level logs to the console."
@@ -204,10 +204,15 @@ def run() -> None:
     configure_logging(verbose=args.verbose)
 
     load_dotenv()
+
+    run(verbose=args.verbose, x_commentary=args.x_commentary)
+
+
+def run(verbose: bool, x_commentary: bool) -> None:
     today = date.today().isoformat()
     session_usage = {"total_tokens": 0}
 
-    if not args.x_commentary:
+    if not x_commentary:
         print("(X commentary tool is off — pass --x-commentary to enable it. See README for API cost info.)")
 
     # Separate graphs per phase so the model literally cannot call
@@ -215,7 +220,7 @@ def run() -> None:
     # resolve_game once locked onto one) — a prompt instruction alone
     # doesn't reliably stop it from reaching for a tool it can still see.
     resolve_graph = build_live_graph(tools=[resolve_game])
-    qa_graph = build_live_graph(tools=_build_qa_tools(args.x_commentary))
+    qa_graph = build_live_graph(tools=_build_qa_tools(x_commentary))
 
     print("Which game are you watching? (e.g. 'Lakers vs Celtics', or 'Lakers Celtics from Jan 15')")
     resolve_prompt = RESOLVE_SYSTEM_PROMPT_TEMPLATE.format(today=today)
@@ -241,7 +246,7 @@ def run() -> None:
         game_id=game_info["game_id"],
         away_team=game_info.get("away_team"),
         home_team=game_info.get("home_team"),
-        x_commentary=args.x_commentary,
+        x_commentary=x_commentary,
     )
 
     while True:
@@ -264,4 +269,4 @@ def run() -> None:
 
 
 if __name__ == "__main__":
-    run()
+    main()
