@@ -29,6 +29,18 @@ st.set_page_config(page_title="NBA Live Agent", page_icon="🏀", layout="center
 
 
 def _init_state() -> None:
+    # Restore the resolved game from the URL first, if present, so a page
+    # reload (which wipes session_state but not the URL) lands back in the
+    # QA phase instead of bouncing to "which game are you watching?" —
+    # chat history itself doesn't survive a reload, only which game you'd
+    # locked onto. Guarded on "resolved" not already being set so this only
+    # fires once per session, not on every rerun.
+    if "resolved" not in st.session_state and st.query_params.get("game_id"):
+        st.session_state.resolved = True
+        st.session_state.game_id = st.query_params.get("game_id")
+        st.session_state.away_team = st.query_params.get("away_team")
+        st.session_state.home_team = st.query_params.get("home_team")
+
     defaults = {
         "resolved": False,
         "resolve_messages": [],  # wire-format history, round-tripped with /resolve verbatim
@@ -83,6 +95,7 @@ with st.sidebar:
     st.caption(f"Tokens used this session: {st.session_state.total_tokens:,}")
     if st.button("New session"):
         st.session_state.clear()
+        st.query_params.clear()
         st.rerun()
 
 if not st.session_state.resolved:
@@ -120,6 +133,9 @@ if not st.session_state.resolved:
                     st.session_state.game_id = final["game_id"]
                     st.session_state.away_team = final["away_team"]
                     st.session_state.home_team = final["home_team"]
+                    st.query_params["game_id"] = final["game_id"] or ""
+                    st.query_params["away_team"] = final["away_team"] or ""
+                    st.query_params["home_team"] = final["home_team"] or ""
         st.session_state.resolve_pending = None
         st.rerun()
 
