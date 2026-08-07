@@ -1,6 +1,5 @@
 # nba-live-agent
 
-[![Tests](https://github.com/kojilbj/nba-live-agent/actions/workflows/test.yml/badge.svg)](https://github.com/kojilbj/nba-live-agent/actions/workflows/test.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-ReAct%20agent-1C3C3C)](https://langchain-ai.github.io/langgraph/)
 [![Gemini](https://img.shields.io/badge/LLM-Gemini-8E75B2)](https://ai.google.dev/gemini-api)
