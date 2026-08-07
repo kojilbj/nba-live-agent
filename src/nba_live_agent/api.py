@@ -7,13 +7,15 @@ Fully stateless: every field a handler needs comes in the request body.
 per question" design (see session.py).
 """
 
+import json
 import os
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Literal
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel
 
@@ -25,7 +27,7 @@ from nba_live_agent.session import (
     build_qa_tools,
     extract_game_info,
     last_ai_message,
-    run_turn_collect,
+    run_turn_stream,
 )
 from nba_live_agent.tools import resolve_game
 
@@ -115,8 +117,12 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/resolve", response_model=ResolveResponse)
-def resolve(req: ResolveRequest, request: Request) -> ResolveResponse:
+def _ndjson(payload: dict) -> str:
+    return json.dumps(payload) + "\n"
+
+
+@app.post("/resolve")
+def resolve(req: ResolveRequest, request: Request) -> StreamingResponse:
     today = date.today().isoformat()
     if req.messages:
         messages = _from_wire(req.messages)
@@ -124,25 +130,37 @@ def resolve(req: ResolveRequest, request: Request) -> ResolveResponse:
         messages = [SystemMessage(RESOLVE_SYSTEM_PROMPT_TEMPLATE.format(today=today))]
     messages.append(HumanMessage(f"The game I'm watching is: {req.description}"))
 
-    try:
-        messages, tokens = run_turn_collect(request.app.state.resolve_graph, messages)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Something went wrong talking to the model: {e}") from e
+    def event_stream():
+        # The whole body is wrapped in try/except rather than just the
+        # run_turn_stream loop: a StreamingResponse can't change its HTTP
+        # status code once headers are sent, so a failure — whenever it
+        # happens — has to surface as an in-band {"type": "error"} event
+        # instead of an HTTP error status.
+        try:
+            for event in run_turn_stream(request.app.state.resolve_graph, messages):
+                if event["kind"] == "tool_call":
+                    yield _ndjson({"type": "tool_call", "name": event["name"]})
+                else:
+                    result_messages = event["messages"]
+                    game_info = extract_game_info(result_messages) or {}
+                    final = ResolveResponse(
+                        messages=_to_wire(result_messages),
+                        reply=last_ai_message(result_messages).text,
+                        resolved=bool(game_info),
+                        game_id=game_info.get("game_id"),
+                        home_team=game_info.get("home_team"),
+                        away_team=game_info.get("away_team"),
+                        tokens_used=event["tokens"],
+                    )
+                    yield _ndjson({"type": "final", **final.model_dump()})
+        except Exception as e:
+            yield _ndjson({"type": "error", "detail": f"Something went wrong talking to the model: {e}"})
 
-    game_info = extract_game_info(messages) or {}
-    return ResolveResponse(
-        messages=_to_wire(messages),
-        reply=last_ai_message(messages).text,
-        resolved=bool(game_info),
-        game_id=game_info.get("game_id"),
-        home_team=game_info.get("home_team"),
-        away_team=game_info.get("away_team"),
-        tokens_used=tokens,
-    )
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
-@app.post("/ask", response_model=AskResponse)
-def ask(req: AskRequest, request: Request) -> AskResponse:
+@app.post("/ask")
+def ask(req: AskRequest, request: Request) -> StreamingResponse:
     today = date.today().isoformat()
     qa_prompt = build_qa_prompt(
         today=today,
@@ -152,9 +170,17 @@ def ask(req: AskRequest, request: Request) -> AskResponse:
         x_commentary=req.x_commentary,
     )
     graph = request.app.state.qa_graph_x if req.x_commentary else request.app.state.qa_graph
-    try:
-        messages, tokens = run_turn_collect(graph, [SystemMessage(qa_prompt), HumanMessage(req.question)])
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Something went wrong talking to the model: {e}") from e
+    turn_messages = [SystemMessage(qa_prompt), HumanMessage(req.question)]
 
-    return AskResponse(answer=last_ai_message(messages).text, tokens_used=tokens)
+    def event_stream():
+        try:
+            for event in run_turn_stream(graph, turn_messages):
+                if event["kind"] == "tool_call":
+                    yield _ndjson({"type": "tool_call", "name": event["name"]})
+                else:
+                    final = AskResponse(answer=last_ai_message(event["messages"]).text, tokens_used=event["tokens"])
+                    yield _ndjson({"type": "final", **final.model_dump()})
+        except Exception as e:
+            yield _ndjson({"type": "error", "detail": f"Something went wrong talking to the model: {e}"})
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")

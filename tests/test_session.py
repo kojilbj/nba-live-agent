@@ -2,6 +2,7 @@ import json
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools import tool
 
 from nba_live_agent.agent import build_graph
 from nba_live_agent.session import (
@@ -10,6 +11,7 @@ from nba_live_agent.session import (
     extract_game_info,
     last_ai_message,
     run_turn_collect,
+    run_turn_stream,
 )
 from nba_live_agent.tools import get_boxscore, get_hustle_stats, get_matchups, get_play_by_play, get_x_expert_insights
 
@@ -143,3 +145,44 @@ def test_run_turn_collect_propagates_exception_instead_of_swallowing():
 
     with pytest.raises(RuntimeError, match="model boom"):
         run_turn_collect(graph, [HumanMessage("hi")])
+
+
+@tool
+def fake_tool(x: int) -> str:
+    """A tool that just echoes back its input, used to test run_turn_stream's
+    tool_call events."""
+    return f"got {x}"
+
+
+class _ToolThenAnswerModel:
+    """First invoke(): requests fake_tool. Second invoke() (after the tool
+    result is appended to messages): a final answer with no more tool
+    calls, ending the turn."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def invoke(self, messages):
+        self.calls += 1
+        if self.calls == 1:
+            return AIMessage(content="", tool_calls=[{"name": "fake_tool", "args": {"x": 1}, "id": "call_1"}])
+        usage = {"input_tokens": 2, "output_tokens": 3, "total_tokens": 5}
+        return AIMessage(content="final answer", usage_metadata=usage)
+
+
+def test_run_turn_stream_yields_tool_call_then_done():
+    graph = build_graph(_ToolThenAnswerModel(), tools=[fake_tool])
+
+    events = list(run_turn_stream(graph, [HumanMessage("hi")]))
+
+    assert events[0] == {"kind": "tool_call", "name": "fake_tool"}
+    assert events[-1]["kind"] == "done"
+    assert events[-1]["tokens"] == 5
+    assert events[-1]["messages"][-1].content == "final answer"
+
+
+def test_run_turn_stream_propagates_exception():
+    graph = build_graph(_FailingModel(), tools=[])
+
+    with pytest.raises(RuntimeError, match="model boom"):
+        list(run_turn_stream(graph, [HumanMessage("hi")]))

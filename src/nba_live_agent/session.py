@@ -47,14 +47,18 @@ QA_SYSTEM_PROMPT_TEMPLATE = (
 )
 
 
-def run_turn_collect(graph, messages: list) -> tuple[list, int]:
+def run_turn_stream(graph, messages: list):
     """API-facing twin of cli._run_turn: drives the same
-    graph.stream(..., stream_mode="updates") loop to completion and sums
-    each agent node's usage_metadata, but collects instead of printing
-    progress, and — critically — lets a mid-turn failure propagate as an
-    exception instead of catching it and returning a partial result. An
-    HTTP endpoint needs a real error status, not a 200 with an apologetic
-    message baked into the body.
+    graph.stream(..., stream_mode="updates") loop, but yields events
+    instead of printing progress, so a caller (api.py) can forward them to
+    a client as they happen. Yields {"kind": "tool_call", "name": ...} each
+    time the agent requests a tool call, and finally
+    {"kind": "done", "messages": [...], "tokens": N} once the turn
+    completes. A mid-turn failure propagates as an exception through the
+    generator — callers that want a single HTTP error status instead of a
+    partial result (see run_turn_collect) can let it raise; callers
+    streaming a response body (which can't change its status code after
+    starting) need to catch it around iteration instead.
     """
     all_messages = list(messages)
     total_tokens = 0
@@ -63,10 +67,23 @@ def run_turn_collect(graph, messages: list) -> tuple[list, int]:
             new_messages = node_output["messages"]
             all_messages.extend(new_messages)
             if node_name == "agent":
-                usage = getattr(new_messages[-1], "usage_metadata", None)
+                last = new_messages[-1]
+                usage = getattr(last, "usage_metadata", None)
                 if usage:
                     total_tokens += usage.get("total_tokens", 0)
-    return all_messages, total_tokens
+                for call in getattr(last, "tool_calls", []):
+                    yield {"kind": "tool_call", "name": call["name"]}
+    yield {"kind": "done", "messages": all_messages, "tokens": total_tokens}
+
+
+def run_turn_collect(graph, messages: list) -> tuple[list, int]:
+    """Non-streaming twin of run_turn_stream for callers that just want the
+    final result (messages, tokens) and are fine with a mid-turn failure
+    propagating as a plain exception.
+    """
+    for event in run_turn_stream(graph, messages):
+        if event["kind"] == "done":
+            return event["messages"], event["tokens"]
 
 
 def last_ai_message(messages) -> AIMessage:

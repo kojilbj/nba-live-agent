@@ -37,6 +37,11 @@ def _tool_update(status: str, **extra):
     return {"tools": {"messages": [tool_message]}}
 
 
+def _events(resp) -> list[dict]:
+    """/resolve and /ask return newline-delimited JSON; parse each line."""
+    return [json.loads(line) for line in resp.text.splitlines() if line]
+
+
 @pytest.fixture
 def client(monkeypatch):
     # lifespan's build_live_graph() calls construct a real ChatGoogleGenerativeAI,
@@ -68,10 +73,13 @@ def test_resolve_first_call_not_resolved(client):
     resp = client.post("/resolve", json={"messages": [], "description": "Lakers"})
 
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["resolved"] is False
-    assert data["game_id"] is None
-    assert "Lakers @ Celtics" in data["reply"]
+    events = _events(resp)
+    assert events[0] == {"type": "tool_call", "name": "resolve_game"}
+    final = events[-1]
+    assert final["type"] == "final"
+    assert final["resolved"] is False
+    assert final["game_id"] is None
+    assert "Lakers @ Celtics" in final["reply"]
     # First call with no prior history seeds a fresh SystemMessage.
     assert graph.received_inputs[0]["messages"][0].type == "system"
 
@@ -87,7 +95,7 @@ def test_resolve_wire_round_trip_preserves_tool_calls(client):
     client.app.state.resolve_graph = first_graph
 
     first_resp = client.post("/resolve", json={"messages": [], "description": "Lakers"})
-    wire_messages = first_resp.json()["messages"]
+    wire_messages = _events(first_resp)[-1]["messages"]
 
     second_graph = _FakeGraph([_ai_update(content="ok, got it")])
     client.app.state.resolve_graph = second_graph
@@ -114,11 +122,12 @@ def test_resolve_resolved_path_populates_game_info(client):
 
     resp = client.post("/resolve", json={"messages": [], "description": "Lakers vs Celtics"})
 
-    data = resp.json()
-    assert data["resolved"] is True
-    assert data["game_id"] == "G1"
-    assert data["home_team"] == "Lakers"
-    assert data["away_team"] == "Celtics"
+    final = _events(resp)[-1]
+    assert final["type"] == "final"
+    assert final["resolved"] is True
+    assert final["game_id"] == "G1"
+    assert final["home_team"] == "Lakers"
+    assert final["away_team"] == "Celtics"
 
 
 def test_ask_routes_to_x_commentary_graph_when_enabled(client):
@@ -139,7 +148,9 @@ def test_ask_routes_to_x_commentary_graph_when_enabled(client):
     )
 
     assert resp.status_code == 200
-    assert resp.json()["answer"] == "answer with X"
+    final = _events(resp)[-1]
+    assert final["type"] == "final"
+    assert final["answer"] == "answer with X"
     assert len(x_graph.received_inputs) == 1
     assert len(plain_graph.received_inputs) == 0
 
@@ -156,21 +167,29 @@ def test_ask_routes_to_plain_graph_by_default(client):
     )
 
     assert resp.status_code == 200
-    assert resp.json()["answer"] == "answer without X"
+    final = _events(resp)[-1]
+    assert final["type"] == "final"
+    assert final["answer"] == "answer without X"
     assert len(plain_graph.received_inputs) == 1
     assert len(x_graph.received_inputs) == 0
 
 
-def test_resolve_returns_502_on_graph_failure(client):
+def test_resolve_returns_error_event_on_graph_failure(client):
+    """A StreamingResponse can't change its HTTP status after headers are
+    sent, so a mid-turn failure surfaces as an in-band {"type": "error"}
+    event instead of an HTTP error status — the status stays 200.
+    """
     client.app.state.resolve_graph = _RaisingGraph()
 
     resp = client.post("/resolve", json={"messages": [], "description": "Lakers"})
 
-    assert resp.status_code == 502
-    assert "detail" in resp.json()
+    assert resp.status_code == 200
+    final = _events(resp)[-1]
+    assert final["type"] == "error"
+    assert "detail" in final
 
 
-def test_ask_returns_502_on_graph_failure(client):
+def test_ask_returns_error_event_on_graph_failure(client):
     client.app.state.qa_graph = _RaisingGraph()
 
     resp = client.post(
@@ -178,5 +197,7 @@ def test_ask_returns_502_on_graph_failure(client):
         json={"game_id": "G1", "away_team": "Celtics", "home_team": "Lakers", "question": "Why isn't he scoring?"},
     )
 
-    assert resp.status_code == 502
-    assert "detail" in resp.json()
+    assert resp.status_code == 200
+    final = _events(resp)[-1]
+    assert final["type"] == "error"
+    assert "detail" in final

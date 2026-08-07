@@ -4,6 +4,7 @@ nba_live_agent internals, so it needs no PYTHONPATH/sys.path setup, same as
 how run.py is a thin launcher for cli.py.
 """
 
+import json
 import os
 
 import requests
@@ -11,6 +12,18 @@ import streamlit as st
 
 API_BASE_URL = os.environ.get("NBA_AGENT_API_URL", "http://localhost:8000")
 REQUEST_TIMEOUT = 60
+
+# Mirrors cli.py's TOOL_STATUS_MESSAGES — duplicated rather than imported
+# since this file never reaches into nba_live_agent internals (see the
+# module docstring above).
+TOOL_STATUS_MESSAGES = {
+    "resolve_game": "Looking up the game...",
+    "get_play_by_play": "Pulling play-by-play...",
+    "get_boxscore": "Checking the boxscore...",
+    "get_matchups": "Checking matchup data...",
+    "get_hustle_stats": "Checking hustle stats...",
+    "get_x_expert_insights": "Searching X for expert commentary...",
+}
 
 st.set_page_config(page_title="NBA Live Agent", page_icon="🏀", layout="centered")
 st.logo("🏀", size="medium")
@@ -30,6 +43,28 @@ def _init_state() -> None:
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
+def _stream_turn(url: str, payload: dict, status) -> dict:
+    """POSTs to a streaming (NDJSON) endpoint, updating `status` with a
+    tool-call-aware label as progress events arrive, and returns whichever
+    event ends the stream — {"type": "final", ...} or {"type": "error", ...}.
+    """
+    try:
+        with requests.post(url, json=payload, stream=True, timeout=REQUEST_TIMEOUT) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                event = json.loads(line)
+                if event["type"] == "tool_call":
+                    label = TOOL_STATUS_MESSAGES.get(event["name"], f"Calling {event['name']}...")
+                    status.markdown(f"_{label}_")
+                else:
+                    return event
+    except requests.RequestException as e:
+        return {"type": "error", "detail": f"Couldn't reach the backend: {e}"}
+    return {"type": "error", "detail": "The backend closed the connection unexpectedly."}
 
 
 _init_state()
@@ -57,29 +92,27 @@ if not st.session_state.resolved:
         st.session_state.resolve_chat_log.append({"role": "user", "content": description})
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    resp = requests.post(
-                        f"{API_BASE_URL}/resolve",
-                        json={"messages": st.session_state.resolve_messages, "description": description},
-                        timeout=REQUEST_TIMEOUT,
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                except requests.RequestException as e:
-                    reply = f"Couldn't reach the backend: {e}"
-                    st.write(reply)
-                    st.session_state.resolve_chat_log.append({"role": "assistant", "content": reply})
-                else:
-                    st.write(data["reply"])
-                    st.session_state.resolve_messages = data["messages"]
-                    st.session_state.resolve_chat_log.append({"role": "assistant", "content": data["reply"]})
-                    st.session_state.total_tokens += data["tokens_used"]
-                    if data["resolved"]:
-                        st.session_state.resolved = True
-                        st.session_state.game_id = data["game_id"]
-                        st.session_state.away_team = data["away_team"]
-                        st.session_state.home_team = data["home_team"]
+            status = st.empty()
+            status.markdown("_Thinking..._")
+            final = _stream_turn(
+                f"{API_BASE_URL}/resolve",
+                {"messages": st.session_state.resolve_messages, "description": description},
+                status,
+            )
+            status.empty()
+            if final["type"] == "error":
+                st.write(final["detail"])
+                st.session_state.resolve_chat_log.append({"role": "assistant", "content": final["detail"]})
+            else:
+                st.write(final["reply"])
+                st.session_state.resolve_messages = final["messages"]
+                st.session_state.resolve_chat_log.append({"role": "assistant", "content": final["reply"]})
+                st.session_state.total_tokens += final["tokens_used"]
+                if final["resolved"]:
+                    st.session_state.resolved = True
+                    st.session_state.game_id = final["game_id"]
+                    st.session_state.away_team = final["away_team"]
+                    st.session_state.home_team = final["home_team"]
         st.rerun()
 
 else:
@@ -97,27 +130,25 @@ else:
         st.session_state.qa_chat_log.append({"role": "user", "content": question})
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    resp = requests.post(
-                        f"{API_BASE_URL}/ask",
-                        json={
-                            "game_id": st.session_state.game_id,
-                            "away_team": st.session_state.away_team,
-                            "home_team": st.session_state.home_team,
-                            "question": question,
-                            "x_commentary": st.session_state.x_commentary,
-                        },
-                        timeout=REQUEST_TIMEOUT,
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                except requests.RequestException as e:
-                    reply = f"Couldn't reach the backend: {e}"
-                    st.write(reply)
-                    st.session_state.qa_chat_log.append({"role": "assistant", "content": reply})
-                else:
-                    st.write(data["answer"])
-                    st.session_state.qa_chat_log.append({"role": "assistant", "content": data["answer"]})
-                    st.session_state.total_tokens += data["tokens_used"]
+            status = st.empty()
+            status.markdown("_Thinking..._")
+            final = _stream_turn(
+                f"{API_BASE_URL}/ask",
+                {
+                    "game_id": st.session_state.game_id,
+                    "away_team": st.session_state.away_team,
+                    "home_team": st.session_state.home_team,
+                    "question": question,
+                    "x_commentary": st.session_state.x_commentary,
+                },
+                status,
+            )
+            status.empty()
+            if final["type"] == "error":
+                st.write(final["detail"])
+                st.session_state.qa_chat_log.append({"role": "assistant", "content": final["detail"]})
+            else:
+                st.write(final["answer"])
+                st.session_state.qa_chat_log.append({"role": "assistant", "content": final["answer"]})
+                st.session_state.total_tokens += final["tokens_used"]
         st.rerun()
