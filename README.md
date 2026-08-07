@@ -1,5 +1,12 @@
 # nba-live-agent
 
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-ReAct%20agent-1C3C3C)](https://langchain-ai.github.io/langgraph/)
+[![Gemini](https://img.shields.io/badge/LLM-Gemini-8E75B2)](https://ai.google.dev/gemini-api)
+[![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688)](https://fastapi.tiangolo.com/)
+[![Streamlit](https://img.shields.io/badge/frontend-Streamlit-FF4B4B)](https://streamlit.io/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 A CLI agent that reasons about a live or historical NBA game using a hand-built LangGraph ReAct loop (Gemini + tool calling) over the `nba_api` data feeds, with optional expert commentary pulled from X. You name the game you're watching once at the start of a session; from then on you ask questions like "why isn't LeBron scoring this quarter?" and it pulls play-by-play/boxscore data and gives a causal answer, not a stat dump.
 
 ## Demo
@@ -110,7 +117,6 @@ At session start you name the game (e.g. "Lakers vs Celtics", or a specific date
 
 ### X commentary
 
-
 `get_x_expert_insights` calls X API v2's `search/recent` endpoint, which only searches posts from the **last ~7 days**. It works well for a live or very recent game, but returns no results for older games — e.g. querying it about a Finals game from a couple months back returns nothing, even with a valid, working `X_BEARER_TOKEN`. Pulling commentary on older games would require X's separate (and significantly more expensive) full-archive search product, which this project doesn't use. In practice this means: real-time and recent games only, not a general historical archive.
 
 ## Logging
@@ -118,7 +124,6 @@ At session start you name the game (e.g. "Lakers vs Celtics", or a specific date
 By default the CLI prints only its own status/answer output; console logging stays at `WARNING`. Pass `--verbose`/`-v` to also print `DEBUG`-level logs (tool calls, retries, fallbacks) to the console. A `nba_live_agent.log` file (gitignored) always captures full `DEBUG` detail regardless of verbosity, for after-the-fact troubleshooting. See `src/nba_live_agent/logging_config.py`.
 
 ## Project layout
-
 
 - `src/nba_live_agent/nba_client.py` — plain wrapper functions around `nba_api`
 - `src/nba_live_agent/x_client.py` — X (Twitter) expert-commentary client, with mock fallback
