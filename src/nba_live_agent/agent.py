@@ -4,10 +4,12 @@ to the agent node. This two-node loop *is* the "agentic loop."
 """
 
 import logging
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import Annotated, Sequence, TypedDict
+from typing import Annotated, TypedDict
 
 from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.tools import BaseTool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
@@ -94,7 +96,7 @@ def build_graph(model_with_tools, tools):
     return graph.compile()
 
 
-def build_live_graph(tools: list = TOOLS, model: str = "gemini-3.5-flash-lite"):
+def build_live_graph(tools: list[BaseTool] = TOOLS, model: str = "gemini-3.5-flash-lite"):
     """Wires the loop to the real Gemini model. Pinned to the Flash-Lite tier
     (current-gen "3.5" family, not "2.5" — Google has been cutting off new-key
     access to older generations, e.g. gemini-2.5-flash) rather than
