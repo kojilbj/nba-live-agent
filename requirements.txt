@@ -2,5 +2,9 @@ nba_api
 langgraph
 langchain-google-genai
 python-dotenv
+fastapi
+uvicorn[standard]
+streamlit
+requests
 pytest
 flake8

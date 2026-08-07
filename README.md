@@ -27,6 +27,26 @@ python run.py --x-commentary   # enable get_x_expert_insights (costs real money 
 
 **`get_x_expert_insights` is opt-in, off by default**, independent of whether `X_BEARER_TOKEN` is configured. X API v2 is pay-per-usage, not a flat subscription: **$0.005 per post read**, so a single call at `max_results=10` can cost up to $0.05 (see [X's pricing docs](https://docs.x.com/x-api/getting-started/pricing)). Caching (2-minute TTL) reduces repeat charges within a session, but it can still add up over a long session. Pass `--x-commentary` explicitly when you want it.
 
+## Web app (FastAPI + Streamlit)
+
+The same agent is also available as a chat web app: a stateless FastAPI backend wraps the LangGraph loop, and a Streamlit frontend talks to it over HTTP.
+
+```bash
+python run_web.py   # starts both, one command; Ctrl+C stops both
+```
+
+Or run them separately (e.g. for `--reload` during backend development):
+
+```bash
+# Terminal 1 — backend
+PYTHONPATH=src uvicorn nba_live_agent.api:app --reload --port 8000
+
+# Terminal 2 — frontend
+streamlit run streamlit_app.py
+```
+
+`streamlit_app.py` calls `http://localhost:8000` by default; override with `NBA_AGENT_API_URL` if the backend runs elsewhere. FastAPI itself holds no session state — the resolve-phase conversation (needed for "ambiguous → pick a numbered candidate") is round-tripped through Streamlit's `st.session_state` on every `/resolve` call, while each QA question is answered fresh with no history, mirroring the CLI's existing per-question design (see below). The sidebar's "New session" button clears all client-side state and returns to the resolve prompt.
+
 ## Test
 
 ```bash
@@ -94,9 +114,13 @@ By default the CLI prints only its own status/answer output; console logging sta
 - `src/nba_live_agent/models.py` — Pydantic schemas (`GameResolution`, `PlayEvent`, etc.)
 - `src/nba_live_agent/tools.py` — LangGraph-bindable `@tool` functions
 - `src/nba_live_agent/agent.py` — the hand-rolled agent/tools LangGraph loop
-- `src/nba_live_agent/cli.py` — interactive session loop
+- `src/nba_live_agent/session.py` — resolve/QA prompt building and turn orchestration shared by `cli.py` and `api.py`
+- `src/nba_live_agent/cli.py` — interactive CLI session loop
+- `src/nba_live_agent/api.py` — FastAPI backend for the web app
+- `streamlit_app.py` — Streamlit frontend for the web app (repo root, talks to `api.py` over HTTP)
+- `run_web.py` — starts both the FastAPI backend and Streamlit frontend with one command
 - `src/nba_live_agent/logging_config.py` — logging setup (`--verbose`, log file)
-- `tests/` — unit tests: mocked `nba_api`/X calls, error-handling and fallback paths, log-record assertions
+- `tests/` — unit tests: mocked `nba_api`/X calls, error-handling and fallback paths, log-record assertions, and (`test_api.py`) the FastAPI endpoints with a mocked graph
 
 ## Manual smoke test
 
