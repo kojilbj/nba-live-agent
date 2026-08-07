@@ -21,12 +21,15 @@ def resolve_game(query: str, date: str | None = None) -> GameResolution:
     """Resolve a free-text game description to a specific NBA game_id.
 
     Call this once at the start of a session to figure out which game the
-    user is watching or asking about. Usually just pass query (e.g.
-    "Lakers vs Celtics" or "BOS") and leave date unset — this searches a
-    5-day window (today +/- 2 days) automatically, so you don't need to
-    guess or compute an exact date from relative phrasing like "yesterday"
-    yourself. Only pass a specific date="YYYY-MM-DD" when the user names an
-    explicit date (e.g. "the game on January 15th").
+    user is watching or asking about. Usually just pass query as the team
+    name(s) only (e.g. "Lakers vs Celtics" or "BOS") — strip out anything
+    else the user mentioned (players, specific plays, "the one where...");
+    matching is a plain substring/word check against team names, so extra
+    words don't help and can cause a false "not found". Leave date unset —
+    this searches a 5-day window (today +/- 2 days) automatically, so you
+    don't need to guess or compute an exact date from relative phrasing
+    like "yesterday" yourself. Only pass a specific date="YYYY-MM-DD" when
+    the user names an explicit date (e.g. "the game on January 15th").
 
     Returns status="ok" with a game_id on a single unambiguous match; when
     resolved via the date window, game_date reports which day it fell on.

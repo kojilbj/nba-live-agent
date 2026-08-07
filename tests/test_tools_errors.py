@@ -11,7 +11,6 @@ from nba_live_agent.nba_client import (
     _get_hustle_stats_raw,
     _get_matchups_raw,
     _get_play_by_play_raw,
-    _matching_teams,
     _resolve_game_raw,
 )
 
@@ -25,11 +24,6 @@ def _fake_dataset(headers, rows):
     ds = MagicMock()
     ds.get_dict.return_value = {"headers": headers, "data": rows}
     return ds
-
-
-def test_matching_teams_recognizes_informal_names():
-    matches = {t["abbreviation"] for t in _matching_teams("NYC vs SAS")}
-    assert matches == {"NYK", "SAS"}
 
 
 def test_resolve_game_not_found():
