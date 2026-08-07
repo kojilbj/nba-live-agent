@@ -97,7 +97,19 @@ At session start you name the game (e.g. "Lakers vs Celtics", or a specific date
 
 [`nba_api`](https://github.com/swar/nba_api) — free, open-source wrapper around NBA.com's data feeds. It's unofficial and technically against NBA.com's terms of use, which is common for projects like this but worth being upfront about.
 
+### NBA.com API Reliability & Rate Limits
+
+`nba-live-agent` relies on `nba_api` to fetch data from NBA.com's endpoints (`stats.nba.com` and `live.nba.com`).
+
+- **External Origin Issue**: As documented in [swar/nba_api Issue #176](https://github.com/swar/nba_api/issues/176), `stats.nba.com` sits behind Akamai CDN anti-scraping protections, which can randomly block, rate-limit, or tarpit requests (surfacing as `ReadTimeout` or `HTTP 403 Forbidden` errors). **These connection failures stem from NBA.com's upstream server infrastructure, not a bug in `nba-live-agent`.**
+- **Built-in Resilience**: To minimize the impact of these external limitations, `nba-live-agent` implements multiple defense mechanisms:
+  - Custom browser header spoofing (`STATS_HEADERS`) to avoid instant bot blocking.
+  - Automatic exponential backoff retries on transient network errors.
+  - Explicit socket timeouts (`timeout=5`) to prevent CLI session hangs when requests tarpit.
+  - Primary routing to `live.nba.com` endpoints (which are significantly more reliable) with fallback to `stats.nba.com` only when needed.
+
 ### X commentary
+
 
 `get_x_expert_insights` calls X API v2's `search/recent` endpoint, which only searches posts from the **last ~7 days**. It works well for a live or very recent game, but returns no results for older games — e.g. querying it about a Finals game from a couple months back returns nothing, even with a valid, working `X_BEARER_TOKEN`. Pulling commentary on older games would require X's separate (and significantly more expensive) full-archive search product, which this project doesn't use. In practice this means: real-time and recent games only, not a general historical archive.
 
@@ -105,9 +117,8 @@ At session start you name the game (e.g. "Lakers vs Celtics", or a specific date
 
 By default the CLI prints only its own status/answer output; console logging stays at `WARNING`. Pass `--verbose`/`-v` to also print `DEBUG`-level logs (tool calls, retries, fallbacks) to the console. A `nba_live_agent.log` file (gitignored) always captures full `DEBUG` detail regardless of verbosity, for after-the-fact troubleshooting. See `src/nba_live_agent/logging_config.py`.
 
-**Known quirk:** `stats.nba.com` sits behind Akamai, which can silently "tarpit" requests — the TCP connection succeeds instantly but no HTTP response ever arrives — instead of returning a fast error. This surfaces as a `ReadTimeout` after retries are exhausted; it's an external rate-limiting/anti-scraping behavior, not a bug in this code.
-
 ## Project layout
+
 
 - `src/nba_live_agent/nba_client.py` — plain wrapper functions around `nba_api`
 - `src/nba_live_agent/x_client.py` — X (Twitter) expert-commentary client, with mock fallback
