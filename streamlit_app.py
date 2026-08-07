@@ -60,9 +60,11 @@ def _init_state() -> None:
 
 def _stream_turn(url: str, payload: dict) -> dict:
     """POSTs to a streaming (NDJSON) endpoint inside a live st.status() box
-    — spinner while running, label updated as each tool_call event arrives
-    — and returns whichever event ends the stream: {"type": "final", ...}
-    or {"type": "error", ...}.
+    — spinner while running, label updated as each tool_call event arrives.
+    Each step also gets written into the box's body (visible when expanded)
+    so it's a log of what happened this turn, not just an empty shell.
+    Returns whichever event ends the stream: {"type": "final", ...} or
+    {"type": "error", ...}.
     """
     with st.status("Thinking...", state="running") as status_box:
         try:
@@ -75,15 +77,21 @@ def _stream_turn(url: str, payload: dict) -> dict:
                     if event["type"] == "tool_call":
                         label = TOOL_STATUS_MESSAGES.get(event["name"], f"Calling {event['name']}...")
                         status_box.update(label=label)
+                        st.write(label)
+                    elif event["type"] == "log":
+                        st.code(event["line"], language=None)
                     elif event["type"] == "final":
                         status_box.update(label="Done", state="complete")
                         return event
                     else:  # "error"
                         status_box.update(label="Error", state="error")
+                        st.write(event["detail"])
                         return event
         except requests.RequestException as e:
+            detail = f"Couldn't reach the backend: {e}"
             status_box.update(label="Error", state="error")
-            return {"type": "error", "detail": f"Couldn't reach the backend: {e}"}
+            st.write(detail)
+            return {"type": "error", "detail": detail}
     return {"type": "error", "detail": "The backend closed the connection unexpectedly."}
 
 
