@@ -29,7 +29,13 @@ python run.py --x-commentary   # enable get_x_expert_insights (costs real money 
 
 ## Web app (FastAPI + Streamlit)
 
-The same agent is also available as a chat web app: a stateless FastAPI backend wraps the LangGraph loop, and a Streamlit frontend talks to it over HTTP. Two processes, two terminals:
+The same agent is also available as a chat web app: a stateless FastAPI backend wraps the LangGraph loop, and a Streamlit frontend talks to it over HTTP.
+
+```bash
+python run_web.py   # starts both, one command; Ctrl+C stops both
+```
+
+Or run them separately (e.g. for `--reload` during backend development):
 
 ```bash
 # Terminal 1 — backend
@@ -112,6 +118,7 @@ By default the CLI prints only its own status/answer output; console logging sta
 - `src/nba_live_agent/cli.py` — interactive CLI session loop
 - `src/nba_live_agent/api.py` — FastAPI backend for the web app
 - `streamlit_app.py` — Streamlit frontend for the web app (repo root, talks to `api.py` over HTTP)
+- `run_web.py` — starts both the FastAPI backend and Streamlit frontend with one command
 - `src/nba_live_agent/logging_config.py` — logging setup (`--verbose`, log file)
 - `tests/` — unit tests: mocked `nba_api`/X calls, error-handling and fallback paths, log-record assertions, and (`test_api.py`) the FastAPI endpoints with a mocked graph
 
