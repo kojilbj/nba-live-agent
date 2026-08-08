@@ -28,6 +28,48 @@ TOOL_STATUS_MESSAGES = {
 st.set_page_config(page_title="NBA Live Agent", page_icon="🏀", layout="centered")
 
 
+def _get_secret(name: str) -> str | None:
+    """Checks Streamlit secrets first (works with HF Spaces / Streamlit
+    Cloud secret managers), then falls back to a plain env var. Wrapped in
+    try/except since st.secrets raises if no secrets.toml exists at all
+    (the common case for local dev, where the gate should just be skipped).
+    """
+    try:
+        if name in st.secrets:
+            return st.secrets[name]
+    except Exception:
+        pass
+    return os.environ.get(name)
+
+
+def _check_password() -> bool:
+    """Shared-password gate for public deployments, so a stray visitor
+    can't run up the real Gemini/X API keys behind this app. Not real
+    auth — good enough for a single-user demo, not for protecting
+    anything sensitive. Skipped entirely if APP_PASSWORD isn't set
+    (e.g. local dev).
+    """
+    if st.session_state.get("_authed"):
+        return True
+
+    app_password = _get_secret("APP_PASSWORD")
+    if not app_password:
+        return True
+
+    st.title("🏀 NBA Live Agent")
+    entered = st.text_input("Password", type="password")
+    if entered == app_password:
+        st.session_state["_authed"] = True
+        st.rerun()
+    elif entered:
+        st.error("Wrong password.")
+    return False
+
+
+if not _check_password():
+    st.stop()
+
+
 def _init_state() -> None:
     # Restore the resolved game from the URL first, if present, so a page
     # reload (which wipes session_state but not the URL) lands back in the

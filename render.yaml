@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: nba-live-agent-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: PYTHONPATH=src uvicorn nba_live_agent.api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: X_BEARER_TOKEN
+        sync: false
+
+  - type: web
+    name: nba-live-agent-web
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run streamlit_app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false
+    envVars:
+      - key: NBA_AGENT_API_URL
+        value: https://nba-live-agent-api.onrender.com
+      - key: APP_PASSWORD
+        sync: false
