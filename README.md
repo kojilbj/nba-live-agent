@@ -147,3 +147,13 @@ Automated tests mock every external call, so they don't catch a live API field r
 3. Confirm a second question doesn't re-trigger `resolve_game` (the session should hold the `game_id`).
 4. Force each error path once: a nonsense team name, a period beyond what's been played, a made-up player name.
 5. If a live field name turns out to differ from what's in `nba_client.py`, run with `--verbose` (or check `nba_live_agent.log`) to see the raw response in the traceback.
+
+## Deploying
+
+`render.yaml` defines two free [Render](https://render.com) web services — the FastAPI backend and the Streamlit frontend — as a Blueprint, so both deploy together from one connection to this repo.
+
+1. In the Render dashboard: **New → Blueprint**, connect this repo. Render auto-detects `render.yaml` and proposes both services.
+2. Before (or after) the first deploy, fill in each service's Environment tab: on `nba-live-agent-api`, set `GOOGLE_API_KEY` (and optionally `X_BEARER_TOKEN` if you want real, paid X commentary instead of the simulated fallback); on `nba-live-agent-web`, set `APP_PASSWORD` (a password of your choosing — the app is otherwise open to anyone with the URL, which would let them spend your API key's quota).
+3. Deploy. From then on, every push to `main` auto-redeploys both services — no extra CI setup needed, this is Render's default GitHub-connected behavior.
+4. Free-tier tradeoff: both services spin down after 15 minutes of inactivity, so the first request after a while takes ~30-60s to cold-start.
+5. If you rename either service, update `NBA_AGENT_API_URL` in `render.yaml` to match — it's hardcoded to `https://nba-live-agent-api.onrender.com`, following Render's `https://<service-name>.onrender.com` URL convention rather than a dynamic lookup.
