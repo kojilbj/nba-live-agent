@@ -142,7 +142,7 @@ with st.sidebar:
 
 if not st.session_state.resolved:
     st.title("Which game are you watching?")
-    st.caption("e.g. \"Lakers vs Celtics\", or a specific date like \"Lakers Celtics from Jan 15\"")
+    st.caption("e.g. \"Lakers vs Celtics\", or a specific date like \"Lakers Celtics from Jan 14\"")
 
     for entry in st.session_state.resolve_chat_log:
         with st.chat_message(entry["role"]):
