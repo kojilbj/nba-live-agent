@@ -22,17 +22,17 @@ pip install -r requirements.txt
 cp .env.example .env       # fill in GOOGLE_API_KEY (required); X_BEARER_TOKEN is optional
 ```
 
-Without `X_BEARER_TOKEN`, `get_x_expert_insights` returns simulated expert commentary instead of hitting the real X API.
+Without `X_BEARER_TOKEN`, `get_x_expert_insights` is unavailable and returns an error status.
 
 ## Run
 
 ```bash
 python run.py                  # interactive session, X commentary off
 python run.py --verbose        # also print DEBUG-level logs to the console
-python run.py --x-commentary   # enable get_x_expert_insights (costs real money if X_BEARER_TOKEN is set — see below)
+python run.py --x-commentary   # enable get_x_expert_insights
 ```
 
-**`get_x_expert_insights` is opt-in, off by default**, independent of whether `X_BEARER_TOKEN` is configured. X API v2 is pay-per-usage, not a flat subscription: **$0.005 per post read**, so a single call at `max_results=10` can cost up to $0.05 (see [X's pricing docs](https://docs.x.com/x-api/getting-started/pricing)). Caching (2-minute TTL) reduces repeat charges within a session, but it can still add up over a long session. Pass `--x-commentary` explicitly when you want it.
+**`get_x_expert_insights` is opt-in, off by default**, independent of whether `X_BEARER_TOKEN` is configured. Pass `--x-commentary` explicitly when you want it.
 
 ## Web app (FastAPI + Streamlit)
 
@@ -52,7 +52,9 @@ PYTHONPATH=src uvicorn nba_live_agent.api:app --reload --port 8000
 streamlit run streamlit_app.py
 ```
 
-`streamlit_app.py` calls `http://localhost:8000` by default; override with `NBA_AGENT_API_URL` if the backend runs elsewhere. FastAPI itself holds no session state — the resolve-phase conversation (needed for "ambiguous → pick a numbered candidate") is round-tripped through Streamlit's `st.session_state` on every `/resolve` call, while each QA question is answered fresh with no history, mirroring the CLI's existing per-question design (see below). The sidebar's "New session" button clears all client-side state and returns to the resolve prompt.
+`streamlit_app.py` calls `http://localhost:8000` by default; override with `NBA_AGENT_API_URL` if the backend runs elsewhere.
+
+FastAPI holds no session state — the resolve-phase conversation is round-tripped through Streamlit's `st.session_state`, while each QA question is answered fresh with no history (mirroring the CLI). The sidebar's "New session" button resets everything.
 
 ## Test
 
@@ -96,28 +98,23 @@ At session start you name the game (e.g. "Lakers vs Celtics", or a specific date
 - `get_boxscore(game_id)` — current live stats snapshot for every player.
 - `get_matchups(game_id, player_name)` — per-defender breakdown of who guarded a given player.
 - `get_hustle_stats(game_id)` — screen assists, deflections, charges drawn, box outs, contested shots, loose balls recovered.
-- `get_x_expert_insights(query)` — qualitative tactical commentary from a curated list of NBA analysts on X, for context raw stats don't explain (falls back to simulated posts without an `X_BEARER_TOKEN`, or if the real API call fails). Real-time/recent games only — see [X commentary](#x-commentary) below. **Opt-in via `--x-commentary`** (off by default, regardless of whether a token is set) since real calls cost money — see [Run](#run).
+- `get_x_expert_insights(query)` — qualitative tactical commentary from a curated list of NBA analysts on X, for context raw stats don't explain. Real-time/recent games only — see [X commentary](#x-commentary) below. Opt-in via `--x-commentary` — see [Run](#run).
 
 `nba_client.py` retries each `nba_api` call with backoff and falls back from the live feed to the historical stats feed when the live feed doesn't have a game anymore. All of this is decoupled from LangGraph — it's plain functions returning status dicts.
 
 ### Data source
 
-[`nba_api`](https://github.com/swar/nba_api) — free, open-source wrapper around NBA.com's data feeds. It's unofficial and technically against NBA.com's terms of use, which is common for projects like this but worth being upfront about.
+[`nba_api`](https://github.com/swar/nba_api) — free, open-source wrapper around NBA.com's data feeds. It's unofficial and technically against NBA.com's terms of use.
 
 ### NBA.com API Reliability & Rate Limits
 
-`nba-live-agent` relies on `nba_api` to fetch data from NBA.com's endpoints (`stats.nba.com` and `live.nba.com`).
+`stats.nba.com` sits behind Akamai anti-scraping protections and can randomly block, rate-limit, or tarpit requests (`ReadTimeout` / `HTTP 403`) — see [swar/nba_api#176](https://github.com/swar/nba_api/issues/176). This is an NBA.com upstream issue, not a bug in `nba-live-agent`.
 
-- **External Origin Issue**: As documented in [swar/nba_api Issue #176](https://github.com/swar/nba_api/issues/176), `stats.nba.com` sits behind Akamai CDN anti-scraping protections, which can randomly block, rate-limit, or tarpit requests (surfacing as `ReadTimeout` or `HTTP 403 Forbidden` errors). **These connection failures stem from NBA.com's upstream server infrastructure, not a bug in `nba-live-agent`.**
-- **Built-in Resilience**: To minimize the impact of these external limitations, `nba-live-agent` implements multiple defense mechanisms:
-  - Custom browser header spoofing (`STATS_HEADERS`) to avoid instant bot blocking.
-  - Automatic exponential backoff retries on transient network errors.
-  - Explicit socket timeouts (`timeout=5`) to prevent CLI session hangs when requests tarpit.
-  - Primary routing to `live.nba.com` endpoints (which are significantly more reliable) with fallback to `stats.nba.com` only when needed.
+Mitigations: header spoofing, exponential backoff retries, socket timeouts (`timeout=5`), and routing primarily through the more reliable `live.nba.com` with `stats.nba.com` as fallback.
 
 ### X commentary
 
-`get_x_expert_insights` calls X API v2's `search/recent` endpoint, which only searches posts from the **last ~7 days**. It works well for a live or very recent game, but returns no results for older games — e.g. querying it about a Finals game from a couple months back returns nothing, even with a valid, working `X_BEARER_TOKEN`. Pulling commentary on older games would require X's separate (and significantly more expensive) full-archive search product, which this project doesn't use. In practice this means: real-time and recent games only, not a general historical archive.
+`get_x_expert_insights` calls X API v2's `search/recent` endpoint, which only searches posts from the **last ~7 days** — real-time and recent games only, not a historical archive. Older games return no results even with a valid `X_BEARER_TOKEN`.
 
 ## Logging
 
@@ -138,22 +135,8 @@ By default the CLI prints only its own status/answer output; console logging sta
 - `src/nba_live_agent/logging_config.py` — logging setup (`--verbose`, log file)
 - `tests/` — unit tests: mocked `nba_api`/X calls, error-handling and fallback paths, log-record assertions, and (`test_api.py`) the FastAPI endpoints with a mocked graph
 
-## Manual smoke test
-
-Automated tests mock every external call, so they don't catch a live API field renaming or an actual network-behavior change. Before trusting this against a real game:
-
-1. `python run.py`, describe a real in-progress or recent game by team name alone (e.g. "Lakers") — `resolve_game` should find it via the ±2-day window without needing a date. Confirm a team with more than one game in that window comes back as numbered candidates instead of guessing. For a game clearly outside the window, name a specific date instead (e.g. "Lakers vs Celtics from January 15").
-2. Ask a few of: "Why isn't LeBron scoring this quarter?", "How has Steph Curry been shooting in the second half?", "What's LeBron's shooting line for the game so far?", "Has Player X been on the bench a lot this period?"
-3. Confirm a second question doesn't re-trigger `resolve_game` (the session should hold the `game_id`).
-4. Force each error path once: a nonsense team name, a period beyond what's been played, a made-up player name.
-5. If a live field name turns out to differ from what's in `nba_client.py`, run with `--verbose` (or check `nba_live_agent.log`) to see the raw response in the traceback.
-
 ## Deploying
 
 `render.yaml` defines two free [Render](https://render.com) web services — the FastAPI backend and the Streamlit frontend — as a Blueprint, so both deploy together from one connection to this repo.
 
-1. In the Render dashboard: **New → Blueprint**, connect this repo. Render auto-detects `render.yaml` and proposes both services.
-2. Before (or after) the first deploy, fill in each service's Environment tab: on `nba-live-agent-api`, set `GOOGLE_API_KEY` (and optionally `X_BEARER_TOKEN` if you want real, paid X commentary instead of the simulated fallback); on `nba-live-agent-web`, set `APP_PASSWORD` (a password of your choosing — the app is otherwise open to anyone with the URL, which would let them spend your API key's quota).
-3. Deploy. From then on, every push to `main` auto-redeploys both services — no extra CI setup needed, this is Render's default GitHub-connected behavior.
-4. Free-tier tradeoff: both services spin down after 15 minutes of inactivity, so the first request after a while takes ~30-60s to cold-start.
-5. If you rename either service, update `NBA_AGENT_API_URL` in `render.yaml` to match — it's hardcoded to `https://nba-live-agent-api.onrender.com`, following Render's `https://<service-name>.onrender.com` URL convention rather than a dynamic lookup.
+In the Render dashboard, **New → Blueprint**, connect this repo, then set env vars: on `nba-live-agent-api`, `GOOGLE_API_KEY` (required; optionally `X_BEARER_TOKEN`); on `nba-live-agent-web`, `APP_PASSWORD` (required, otherwise anyone with the URL can spend your API quota). Every push to `main` auto-redeploys both.
