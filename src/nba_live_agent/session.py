@@ -30,7 +30,14 @@ RESOLVE_SYSTEM_PROMPT_TEMPLATE = (
     "Celtics', '2. ...') and ask the user to pick one, so they can respond "
     "with a number instead of having to type a team name precisely. Only "
     "fall back to asking them to re-describe the game if that list is "
-    "empty too."
+    "empty too. Never speculate about connection problems, API outages, or "
+    "system malfunctions — resolve_game reports a distinct "
+    "status=\"api_error\" for actual fetch failures; a not_found/ambiguous "
+    "result just means no matching game, most often because none is "
+    "scheduled (e.g. off-season). State only the literal reason from the "
+    "tool's message field. Don't offer to answer questions about other "
+    "leagues (WNBA, etc.) or general basketball trivia — you only have "
+    "data for NBA games via resolve_game."
 )
 
 QA_SYSTEM_PROMPT_TEMPLATE = (

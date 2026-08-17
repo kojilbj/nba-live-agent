@@ -6,6 +6,7 @@ from langchain_core.tools import tool
 
 from nba_live_agent.agent import build_graph
 from nba_live_agent.session import (
+    RESOLVE_SYSTEM_PROMPT_TEMPLATE,
     build_qa_prompt,
     build_qa_tools,
     extract_game_info,
@@ -54,6 +55,14 @@ def test_build_qa_prompt_includes_x_when_enabled():
     assert "get_x_expert_insights" in prompt
     # Mentioned twice: once in the tool list, once in the multi-source example.
     assert prompt.count("get_x_expert_insights") == 2
+
+
+def test_resolve_prompt_forbids_speculating_about_system_health():
+    prompt = RESOLVE_SYSTEM_PROMPT_TEMPLATE.format(today="2026-01-16")
+
+    assert "speculate" in prompt
+    assert "api_error" in prompt
+    assert "other leagues" in prompt
 
 
 def _resolve_tool_message(status: str, **extra) -> ToolMessage:
