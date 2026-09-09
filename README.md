@@ -5,6 +5,7 @@
 [![Gemini](https://img.shields.io/badge/LLM-Gemini-8E75B2)](https://ai.google.dev/gemini-api)
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688)](https://fastapi.tiangolo.com/)
 [![Streamlit](https://img.shields.io/badge/frontend-Streamlit-FF4B4B)](https://streamlit.io/)
+[![MCP](https://img.shields.io/badge/MCP-server-000000)](https://modelcontextprotocol.io/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A CLI agent that reasons about a live or historical NBA game using a hand-built LangGraph ReAct loop (Gemini + tool calling) over the `nba_api` data feeds, with optional expert commentary pulled from X. You name the game you're watching once at the start of a session; from then on you ask questions like "why isn't LeBron scoring this quarter?" and it pulls play-by-play/boxscore data and gives a causal answer, not a stat dump.
