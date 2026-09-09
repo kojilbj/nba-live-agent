@@ -56,6 +56,18 @@ streamlit run streamlit_app.py
 
 FastAPI holds no session state — the resolve-phase conversation is round-tripped through Streamlit's `st.session_state`, while each QA question is answered fresh with no history (mirroring the CLI). The sidebar's "New session" button resets everything.
 
+## MCP server
+
+The six NBA data tools (`resolve_game`, `get_play_by_play`, `get_boxscore`, `get_matchups`, `get_hustle_stats`, `get_x_expert_insights`) are also available directly as an MCP server, so a client like Claude Code can call them itself without going through the Gemini agent loop.
+
+Register it as a local stdio server, pointing at this repo's own virtualenv interpreter (a bare `python` may resolve to something without the `mcp` package installed, or fail to resolve at all depending on your shell setup):
+
+```bash
+claude mcp add nba-live-agent -- /absolute/path/to/nba-live-agent/.venv/bin/python /absolute/path/to/nba-live-agent/run_mcp.py
+```
+
+The server reads `GOOGLE_API_KEY`/`X_BEARER_TOKEN` from this repo's `.env` regardless of the client's working directory. `GOOGLE_API_KEY` isn't actually needed by these tools (no Gemini call involved) — only `X_BEARER_TOKEN` matters, and only for `get_x_expert_insights`, which falls back to mock data (`is_mock=True`) when it's unset, same as the CLI/API.
+
 ## Test
 
 ```bash
@@ -132,6 +144,8 @@ By default the CLI prints only its own status/answer output; console logging sta
 - `src/nba_live_agent/api.py` — FastAPI backend for the web app
 - `streamlit_app.py` — Streamlit frontend for the web app (repo root, talks to `api.py` over HTTP)
 - `run_web.py` — starts both the FastAPI backend and Streamlit frontend with one command
+- `src/nba_live_agent/mcp_server.py` — MCP server exposing the same six tools directly to MCP clients (e.g. Claude Code)
+- `run_mcp.py` — stdio entry point for the MCP server
 - `src/nba_live_agent/logging_config.py` — logging setup (`--verbose`, log file)
 - `tests/` — unit tests: mocked `nba_api`/X calls, error-handling and fallback paths, log-record assertions, and (`test_api.py`) the FastAPI endpoints with a mocked graph
 
