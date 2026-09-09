@@ -11,12 +11,10 @@ logger = logging.getLogger(__name__)
 EXPERT_ACCOUNTS = [
     {"handle": "stevejones20", "name": "Steve Jones Jr."},
     {"handle": "NekiasNBA", "name": "Nekias Duncan"},
-    {"handle": "ThinkingBBall", "name": "Thinking Basketball"},
-    {"handle": "ChrisSasaki", "name": "佐々木クリス"},
+    {"handle": "chrisnewtokyo", "name": "佐々木クリス"},
     {"handle": "kirkgoldsberry", "name": "Kirk Goldsberry"},
     {"handle": "ZachLowe_NBA", "name": "Zach Lowe"},
     {"handle": "MoDakhil_NBA", "name": "Mo Dakhil"},
-    {"handle": "bencfalk", "name": "Ben Falk (Cleaning The Glass)"},
     {"handle": "C2_Cooper", "name": "Caitlin Cooper"},
     {"handle": "StephNoh", "name": "Steph Noh"},
 ]
@@ -46,7 +44,7 @@ def _generate_mock_posts(query: str) -> list[XPost]:
     # Mock post 2: Chris Sasaki (Japanese Tactical Analysis)
     posts.append(
         XPost(
-            handle="ChrisSasaki",
+            handle="chrisnewtokyo",
             author="佐々木クリス",
             content=(
                 f"{query.title()}の今日のセットオフェンス、相手のヘッジディフェンスに対して"
@@ -54,25 +52,11 @@ def _generate_mock_posts(query: str) -> list[XPost]:
                 "スペーシングが非常に効いています。"
             ),
             timestamp="15m ago",
-            url="https://x.com/ChrisSasaki/status/1000000000000000002",
+            url="https://x.com/chrisnewtokyo/status/1000000000000000002",
         )
     )
 
-    # Mock post 3: Thinking Basketball (Data & Efficiency)
-    posts.append(
-        XPost(
-            handle="ThinkingBBall",
-            author="Thinking Basketball",
-            content=(
-                f"When {query.title()} attacks in transition, their rim frequency jumps to 45%. "
-                "In half-court sets against drop coverage, efficiency dips significantly without secondary playmaking."
-            ),
-            timestamp="30m ago",
-            url="https://x.com/ThinkingBBall/status/1000000000000000003",
-        )
-    )
-
-    # Mock post 4: Nekias Duncan (Matchup / Defense)
+    # Mock post 3: Nekias Duncan (Matchup / Defense)
     posts.append(
         XPost(
             handle="NekiasNBA",
