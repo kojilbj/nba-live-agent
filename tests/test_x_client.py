@@ -1,6 +1,5 @@
-import json
 import logging
-import urllib.parse
+from types import SimpleNamespace
 
 from nba_live_agent import x_client
 from nba_live_agent.tools import get_x_expert_insights
@@ -55,41 +54,62 @@ def test_get_x_insights_real_api_scopes_to_expert_accounts(monkeypatch):
     monkeypatch.setenv("X_BEARER_TOKEN", "fake-token")
     captured = {}
 
-    class FakeResponse:
-        def __enter__(self):
-            return self
+    class FakeClient:
+        def __init__(self, bearer_token):
+            captured["bearer_token"] = bearer_token
 
-        def __exit__(self, *args):
-            return False
+        def search_recent_tweets(self, query, max_results, tweet_fields):
+            captured["query"] = query
+            return SimpleNamespace(data=None)
 
-        def read(self):
-            return json.dumps({"data": []}).encode("utf-8")
-
-    def fake_urlopen(req, timeout=5):
-        captured["url"] = req.full_url
-        return FakeResponse()
-
-    monkeypatch.setattr(x_client.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(x_client.tweepy, "Client", FakeClient)
 
     x_client.get_x_insights("Lakers", use_cache=False)
 
-    assert "url" in captured
-    decoded_query = urllib.parse.unquote(captured["url"])
+    assert captured["bearer_token"] == "fake-token"
     # Every curated handle must be present as a `from:` filter, not just a
     # generic verified-account search — this is what makes "commentary from
     # a curated list of NBA analysts" an accurate claim, not just "any
     # verified account that happens to mention the query".
     for account in x_client.EXPERT_ACCOUNTS:
-        assert f"from:{account['handle']}" in decoded_query
+        assert f"from:{account['handle']}" in captured["query"]
+
+
+def test_get_x_insights_real_api_maps_tweet_fields(monkeypatch):
+    monkeypatch.setenv("X_BEARER_TOKEN", "fake-token")
+
+    fake_tweet = SimpleNamespace(id=123, text="Great adjustment tonight.", author_id=456, created_at="2026-01-16")
+
+    class FakeClient:
+        def __init__(self, bearer_token):
+            pass
+
+        def search_recent_tweets(self, query, max_results, tweet_fields):
+            return SimpleNamespace(data=[fake_tweet])
+
+    monkeypatch.setattr(x_client.tweepy, "Client", FakeClient)
+
+    res = x_client.get_x_insights("Lakers", use_cache=False)
+
+    assert res.status == "ok"
+    assert len(res.posts) == 1
+    post = res.posts[0]
+    assert post.content == "Great adjustment tonight."
+    assert post.handle == "456"
+    assert post.url == "https://x.com/i/web/status/123"
 
 
 def test_get_x_insights_logs_warning_on_real_api_failure(monkeypatch, caplog):
     monkeypatch.setenv("X_BEARER_TOKEN", "fake-token")
-    monkeypatch.setattr(
-        x_client.urllib.request,
-        "urlopen",
-        lambda *a, **k: (_ for _ in ()).throw(OSError("network unreachable")),
-    )
+
+    class FailingClient:
+        def __init__(self, bearer_token):
+            pass
+
+        def search_recent_tweets(self, query, max_results, tweet_fields):
+            raise OSError("network unreachable")
+
+    monkeypatch.setattr(x_client.tweepy, "Client", FailingClient)
 
     with caplog.at_level(logging.WARNING, logger="nba_live_agent.x_client"):
         res = x_client.get_x_insights("NetworkFailureQuery", use_cache=False)

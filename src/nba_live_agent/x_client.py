@@ -1,7 +1,7 @@
-import json
 import logging
 import time
-import urllib.request
+
+import tweepy
 
 from nba_live_agent.env_config import get_configured_env
 from nba_live_agent.models import XInsightsResult, XPost
@@ -115,39 +115,32 @@ def get_x_insights(query: str, use_cache: bool = True) -> XInsightsResult:
 
     # Real X API v2 search endpoint call when token is available
     try:
+        client = tweepy.Client(bearer_token=bearer_token)
         handles_clause = " OR ".join(f"from:{acc['handle']}" for acc in EXPERT_ACCOUNTS)
-        encoded_query = urllib.parse.quote(f"({handles_clause}) {clean_query}")
-        endpoint = "https://api.twitter.com/2/tweets/search/recent"
-        url = f"{endpoint}?query={encoded_query}&max_results=10&tweet.fields=created_at,author_id"
-        req = urllib.request.Request(
-            url,
-            headers={
-                "Authorization": f"Bearer {bearer_token}",
-                "User-Agent": "nba-live-agent/1.0",
-            },
+        response = client.search_recent_tweets(
+            query=f"({handles_clause}) {clean_query}",
+            max_results=10,
+            tweet_fields=["created_at", "author_id"],
         )
-
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            raw_tweets = data.get("data", [])
-            posts = [
-                XPost(
-                    handle=tweet.get("author_id", "unknown"),
-                    author="X Expert",
-                    content=tweet.get("text", ""),
-                    timestamp=tweet.get("created_at"),
-                    url=f"https://x.com/i/web/status/{tweet.get('id')}",
-                )
-                for tweet in raw_tweets
-            ]
-            result = XInsightsResult(
-                status="ok" if posts else "no_posts_found",
-                query=clean_query,
-                posts=posts,
-                is_mock=False,
+        raw_tweets = response.data or []
+        posts = [
+            XPost(
+                handle=str(tweet.author_id) if tweet.author_id is not None else "unknown",
+                author="X Expert",
+                content=tweet.text,
+                timestamp=str(tweet.created_at) if tweet.created_at is not None else None,
+                url=f"https://x.com/i/web/status/{tweet.id}",
             )
-            _CACHE[cache_key] = (now, result)
-            return result
+            for tweet in raw_tweets
+        ]
+        result = XInsightsResult(
+            status="ok" if posts else "no_posts_found",
+            query=clean_query,
+            posts=posts,
+            is_mock=False,
+        )
+        _CACHE[cache_key] = (now, result)
+        return result
     except Exception as e:
         logger.warning("X API request failed, falling back to mock data: %s", e)
         mock_posts = _generate_mock_posts(clean_query)
