@@ -19,7 +19,7 @@ A CLI agent that reasons about a live or historical NBA game using a hand-built 
 python3.11 -m venv .venv   # 3.11/3.12 recommended over very new Python releases
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env       # fill in GOOGLE_API_KEY (required); X_BEARER_TOKEN is optional
+cp .env_example .env       # fill in GOOGLE_API_KEY (required); X_BEARER_TOKEN is optional
 ```
 
 Without `X_BEARER_TOKEN`, `get_x_expert_insights` is unavailable and returns an error status.

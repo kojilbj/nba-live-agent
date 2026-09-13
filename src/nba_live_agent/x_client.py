@@ -1,9 +1,9 @@
 import json
 import logging
-import os
 import time
 import urllib.request
 
+from nba_live_agent.env_config import get_configured_env
 from nba_live_agent.models import XInsightsResult, XPost
 
 logger = logging.getLogger(__name__)
@@ -99,7 +99,7 @@ def get_x_insights(query: str, use_cache: bool = True) -> XInsightsResult:
         if now - cached_time < CACHE_TTL_SECONDS:
             return cached_result
 
-    bearer_token = os.getenv("X_BEARER_TOKEN")
+    bearer_token = get_configured_env("X_BEARER_TOKEN")
 
     if not bearer_token:
         logger.warning("X_BEARER_TOKEN is not set; get_x_expert_insights is unavailable")

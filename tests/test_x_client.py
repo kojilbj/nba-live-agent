@@ -15,6 +15,16 @@ def test_get_x_insights_no_token_reports_unavailable(monkeypatch):
     assert "X_BEARER_TOKEN" in res.message
 
 
+def test_get_x_insights_placeholder_token_reports_unavailable(monkeypatch):
+    # .env_example ships with a placeholder value; copying it into .env
+    # without editing it must behave the same as leaving the var unset.
+    monkeypatch.setenv("X_BEARER_TOKEN", "your_x_bearer_token_here")
+    res = x_client.get_x_insights("Lakers", use_cache=False)
+    assert res.status == "api_error"
+    assert res.is_mock is False
+    assert res.posts == []
+
+
 def test_get_x_insights_empty_query():
     res = x_client.get_x_insights("   ", use_cache=False)
     assert res.status == "no_posts_found"
