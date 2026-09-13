@@ -21,6 +21,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from pydantic import BaseModel
 
 from nba_live_agent.agent import build_live_graph
+from nba_live_agent.env_config import require_google_api_key
 from nba_live_agent.logging_config import configure_logging
 from nba_live_agent.session import (
     RESOLVE_SYSTEM_PROMPT_TEMPLATE,
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_dotenv()
+    require_google_api_key()
     configure_logging(verbose=os.environ.get("NBA_AGENT_VERBOSE") == "1")
     # Two QA graph variants (with/without get_x_expert_insights) built once
     # at startup and reused across requests, mirroring how cli.run() builds

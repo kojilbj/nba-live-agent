@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from nba_live_agent.agent import build_live_graph
+from nba_live_agent.env_config import require_google_api_key
 from nba_live_agent.logging_config import configure_logging
 from nba_live_agent.session import (
     RESOLVE_SYSTEM_PROMPT_TEMPLATE,
@@ -113,6 +114,7 @@ def main() -> None:
     configure_logging(verbose=args.verbose)
 
     load_dotenv()
+    require_google_api_key()
 
     run(verbose=args.verbose, x_commentary=args.x_commentary)
 
