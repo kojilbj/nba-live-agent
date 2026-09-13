@@ -8,8 +8,10 @@ import json
 
 from langchain_core.messages import AIMessage, ToolMessage
 
+from nba_live_agent.env_config import get_configured_env
 from nba_live_agent.tools import (
     get_boxscore,
+    get_general_news,
     get_hustle_stats,
     get_matchups,
     get_play_by_play,
@@ -118,16 +120,26 @@ def extract_game_info(messages) -> dict | None:
     return None
 
 
+def _tavily_configured() -> bool:
+    return get_configured_env("TAVILY_API_KEY") is not None
+
+
 def build_qa_tools(x_commentary: bool) -> list:
     """The QA-phase tool list. get_x_expert_insights is opt-in (excluded by
     default) since each real call to X's API costs money (X API v2 is
     pay-per-usage — see README) once X_BEARER_TOKEN is configured; the
     --x-commentary flag (or its web-app checkbox equivalent) is the only
     thing that turns it on, independent of whether a token happens to be set.
+
+    get_general_news has no such flag: it's bound whenever TAVILY_API_KEY is
+    actually configured, and left out otherwise (rather than bound but
+    always erroring) so the model never sees a tool it can't use.
     """
     tools = [get_play_by_play, get_boxscore, get_matchups, get_hustle_stats]
     if x_commentary:
         tools.append(get_x_expert_insights)
+    if _tavily_configured():
+        tools.append(get_general_news)
     return tools
 
 
@@ -139,6 +151,8 @@ def build_qa_prompt(*, today: str, game_id: str, away_team: str, home_team: str,
     tool_names = ["get_play_by_play", "get_boxscore", "get_matchups", "get_hustle_stats"]
     if x_commentary:
         tool_names.append("get_x_expert_insights")
+    if _tavily_configured():
+        tool_names.append("get_general_news")
     tool_list = ", ".join(tool_names[:-1]) + f", and {tool_names[-1]}"
     x_commentary_example = " with get_x_expert_insights for qualitative context" if x_commentary else ""
 

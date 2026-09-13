@@ -19,10 +19,10 @@ A CLI agent that reasons about a live or historical NBA game using a hand-built 
 python3.11 -m venv .venv   # 3.11/3.12 recommended over very new Python releases
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env_example .env       # fill in GOOGLE_API_KEY (required); X_BEARER_TOKEN is optional
+cp .env_example .env       # fill in GOOGLE_API_KEY (required); X_BEARER_TOKEN/TAVILY_API_KEY are optional
 ```
 
-Without `X_BEARER_TOKEN`, `get_x_expert_insights` is unavailable and returns an error status.
+Without `X_BEARER_TOKEN`, `get_x_expert_insights` is unavailable and returns an error status. Without `TAVILY_API_KEY`, `get_general_news` isn't bound to the agent at all — unlike `get_x_expert_insights`, there's no flag for it; it's simply added whenever a real key is configured.
 
 ## Run
 
@@ -111,6 +111,7 @@ At session start you name the game (e.g. "Lakers vs Celtics", or a specific date
 - `get_matchups(game_id, player_name)` — per-defender breakdown of who guarded a given player.
 - `get_hustle_stats(game_id)` — screen assists, deflections, charges drawn, box outs, contested shots, loose balls recovered.
 - `get_x_expert_insights(query)` — qualitative tactical commentary from a curated list of NBA analysts on X, for context raw stats don't explain. Real-time/recent games only — see [X commentary](#x-commentary) below. Opt-in via `--x-commentary` — see [Run](#run).
+- `get_general_news(query)` — general NBA news via Tavily web search (injury reports, trades, coaching changes) not covered by the tools above. Bound automatically whenever `TAVILY_API_KEY` is configured; no flag needed.
 
 `nba_client.py` retries each `nba_api` call with backoff and falls back from the live feed to the historical stats feed when the live feed doesn't have a game anymore. All of this is decoupled from LangGraph — it's plain functions returning status dicts.
 
@@ -136,6 +137,7 @@ By default the CLI prints only its own status/answer output; console logging sta
 
 - `src/nba_live_agent/nba_client.py` — plain wrapper functions around `nba_api`
 - `src/nba_live_agent/x_client.py` — X (Twitter) expert-commentary client, with mock fallback
+- `src/nba_live_agent/tavily_client.py` — Tavily general-news web search client
 - `src/nba_live_agent/models.py` — Pydantic schemas (`GameResolution`, `PlayEvent`, etc.)
 - `src/nba_live_agent/tools.py` — LangGraph-bindable `@tool` functions
 - `src/nba_live_agent/agent.py` — the hand-rolled agent/tools LangGraph loop
@@ -153,4 +155,4 @@ By default the CLI prints only its own status/answer output; console logging sta
 
 `render.yaml` defines two free [Render](https://render.com) web services — the FastAPI backend and the Streamlit frontend — as a Blueprint, so both deploy together from one connection to this repo.
 
-In the Render dashboard, **New → Blueprint**, connect this repo, then set env vars: on `nba-live-agent-api`, `GOOGLE_API_KEY` (required; optionally `X_BEARER_TOKEN`); on `nba-live-agent-web`, `APP_PASSWORD` (required, otherwise anyone with the URL can spend your API quota). Every push to `main` auto-redeploys both.
+In the Render dashboard, **New → Blueprint**, connect this repo, then set env vars: on `nba-live-agent-api`, `GOOGLE_API_KEY` (required; optionally `X_BEARER_TOKEN`/`TAVILY_API_KEY`); on `nba-live-agent-web`, `APP_PASSWORD` (required, otherwise anyone with the URL can spend your API quota). Every push to `main` auto-redeploys both.

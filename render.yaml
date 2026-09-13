@@ -10,6 +10,8 @@ services:
         sync: false
       - key: X_BEARER_TOKEN
         sync: false
+      - key: TAVILY_API_KEY
+        sync: false
 
   - type: web
     name: nba-live-agent-web

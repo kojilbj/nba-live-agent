@@ -105,3 +105,16 @@ class XInsightsResult(BaseModel):
     posts: list[XPost] = []
     is_mock: bool = False
     message: str | None = None
+
+
+class NewsItem(BaseModel):
+    title: str
+    url: str
+    content: str
+
+
+class NewsResult(BaseModel):
+    status: Literal["ok", "no_results", "api_error"]
+    query: str
+    items: list[NewsItem] = []
+    message: str | None = None

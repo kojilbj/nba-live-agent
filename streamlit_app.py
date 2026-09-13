@@ -23,6 +23,7 @@ TOOL_STATUS_MESSAGES = {
     "get_matchups": "Checking matchup data...",
     "get_hustle_stats": "Checking hustle stats...",
     "get_x_expert_insights": "Searching X for expert commentary...",
+    "get_general_news": "Searching the web for NBA news...",
 }
 
 st.set_page_config(page_title="NBA Live Agent", page_icon="🏀", layout="centered")
