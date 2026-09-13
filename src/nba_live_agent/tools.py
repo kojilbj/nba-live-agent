@@ -5,12 +5,13 @@ documentation for humans.
 
 from langchain_core.tools import tool
 
-from nba_live_agent import nba_client, x_client
+from nba_live_agent import nba_client, tavily_client, x_client
 from nba_live_agent.models import (
     BoxScoreResult,
     GameResolution,
     HustleStatsResult,
     MatchupsResult,
+    NewsResult,
     PlayByPlayResult,
     XInsightsResult,
 )
@@ -158,3 +159,20 @@ def get_x_expert_insights(query: str) -> XInsightsResult:
     message field as real commentary.
     """
     return x_client.get_x_insights(query)
+
+
+@tool
+def get_general_news(query: str) -> NewsResult:
+    """Search the web for general NBA news not covered by the game-data tools
+    or get_x_expert_insights — injury reports, roster/trade moves, coaching
+    changes, suspensions, and other breaking news.
+
+    query can be a team name, a player name, or a short topic phrase (e.g.
+    "Lakers injury report", "Anthony Davis trade").
+
+    status="api_error" means this tool is unavailable right now (e.g. no
+    Tavily API key configured) — tell the user it's unavailable rather than
+    treating the message field as a real result. status="no_results" means
+    the search ran but found nothing relevant.
+    """
+    return tavily_client.get_general_news(query)

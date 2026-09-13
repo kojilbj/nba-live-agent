@@ -18,6 +18,11 @@ def test_get_configured_env_real_value_returned(monkeypatch):
     assert get_configured_env("GOOGLE_API_KEY") == "a-real-key"
 
 
+def test_get_configured_env_tavily_placeholder_returns_none(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "your_tavily_api_key_here")
+    assert get_configured_env("TAVILY_API_KEY") is None
+
+
 def test_require_google_api_key_exits_when_unset(monkeypatch):
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     with pytest.raises(SystemExit):

@@ -13,6 +13,7 @@ import sys
 PLACEHOLDER_VALUES = {
     "GOOGLE_API_KEY": "your_google_api_key_here",
     "X_BEARER_TOKEN": "your_x_bearer_token_here",
+    "TAVILY_API_KEY": "your_tavily_api_key_here",
 }
 
 

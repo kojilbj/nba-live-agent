@@ -14,17 +14,26 @@ from nba_live_agent.session import (
     run_turn_collect,
     run_turn_stream,
 )
-from nba_live_agent.tools import get_boxscore, get_hustle_stats, get_matchups, get_play_by_play, get_x_expert_insights
+from nba_live_agent.tools import (
+    get_boxscore,
+    get_general_news,
+    get_hustle_stats,
+    get_matchups,
+    get_play_by_play,
+    get_x_expert_insights,
+)
 
 
-def test_build_qa_tools_excludes_x_by_default():
+def test_build_qa_tools_excludes_x_by_default(monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     tools = build_qa_tools(x_commentary=False)
 
     assert get_x_expert_insights not in tools
     assert tools == [get_play_by_play, get_boxscore, get_matchups, get_hustle_stats]
 
 
-def test_build_qa_tools_includes_x_when_enabled():
+def test_build_qa_tools_includes_x_when_enabled(monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     tools = build_qa_tools(x_commentary=True)
 
     assert get_x_expert_insights in tools
@@ -37,7 +46,30 @@ def test_build_qa_tools_includes_x_when_enabled():
     ]
 
 
-def test_build_qa_prompt_excludes_x_mentions_by_default():
+def test_build_qa_tools_excludes_general_news_when_tavily_unset(monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    tools = build_qa_tools(x_commentary=False)
+
+    assert get_general_news not in tools
+
+
+def test_build_qa_tools_excludes_general_news_when_tavily_is_placeholder(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "your_tavily_api_key_here")
+    tools = build_qa_tools(x_commentary=False)
+
+    assert get_general_news not in tools
+
+
+def test_build_qa_tools_includes_general_news_when_tavily_configured(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "a-real-key")
+    tools = build_qa_tools(x_commentary=False)
+
+    assert get_general_news in tools
+    assert tools == [get_play_by_play, get_boxscore, get_matchups, get_hustle_stats, get_general_news]
+
+
+def test_build_qa_prompt_excludes_x_mentions_by_default(monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     prompt = build_qa_prompt(
         today="2026-01-16", game_id="G1", away_team="Celtics", home_team="Lakers", x_commentary=False
     )
@@ -47,7 +79,8 @@ def test_build_qa_prompt_excludes_x_mentions_by_default():
     assert "get_hustle_stats" in prompt
 
 
-def test_build_qa_prompt_includes_x_when_enabled():
+def test_build_qa_prompt_includes_x_when_enabled(monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     prompt = build_qa_prompt(
         today="2026-01-16", game_id="G1", away_team="Celtics", home_team="Lakers", x_commentary=True
     )
@@ -55,6 +88,24 @@ def test_build_qa_prompt_includes_x_when_enabled():
     assert "get_x_expert_insights" in prompt
     # Mentioned twice: once in the tool list, once in the multi-source example.
     assert prompt.count("get_x_expert_insights") == 2
+
+
+def test_build_qa_prompt_excludes_general_news_when_tavily_unset(monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    prompt = build_qa_prompt(
+        today="2026-01-16", game_id="G1", away_team="Celtics", home_team="Lakers", x_commentary=False
+    )
+
+    assert "get_general_news" not in prompt
+
+
+def test_build_qa_prompt_includes_general_news_when_tavily_configured(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "a-real-key")
+    prompt = build_qa_prompt(
+        today="2026-01-16", game_id="G1", away_team="Celtics", home_team="Lakers", x_commentary=False
+    )
+
+    assert "get_general_news" in prompt
 
 
 def test_resolve_prompt_forbids_speculating_about_system_health():
